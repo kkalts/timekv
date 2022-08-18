@@ -64,16 +64,16 @@ func (sl *SkipList) Add(data KVData) {
 	for i := sl.level - 1; i >= 0; i-- {
 		// 首先找到元素应该插入的位置 从最高层开始找
 
-		for next := preElement.levels[i]; next != nil; preElement = next.levels[i] {
+		for cur := preElement.levels[i]; cur != nil; preElement = cur.levels[i] {
 			// 当前小于key 则继续
-			if bytes.Compare(next.data.Key, data.Key) == -1 {
+			if bytes.Compare(cur.data.Key, data.Key) == -1 {
 				continue
 			}
 			// 大于等于 则在 当前之前增加节点 找到位置
-			if comp := bytes.Compare(next.data.Key, data.Key); comp >= 0 {
+			if comp := bytes.Compare(cur.data.Key, data.Key); comp >= 0 {
 				// 如果相等 则有相同元素 进行替换 不能立即替换 因为要替换整列的数据
 				if comp == 0 {
-					elem = next
+					elem = cur
 					elem.data = data
 					return
 				}
@@ -81,7 +81,7 @@ func (sl *SkipList) Add(data KVData) {
 				break
 			}
 			preInsertLocation = preElement
-			insertLocation = next
+			insertLocation = cur
 
 		}
 	}
@@ -111,21 +111,22 @@ func NewElement(data KVData, level int) *Element {
 */
 
 func (sl *SkipList) Find(key []byte) []byte {
-	preElement := sl.header
+	preElement := sl.header // header是空的
+	// header.levels[0]=第一层第一个 ...
 	// 逐行查找 从最高层开始 每层找不到 则向下
 	for i := sl.level - 1; i >= 0; i-- {
 		// 找 每层的 头 尾 中间与key比较
-		for next := preElement.levels[i]; next != nil; preElement = next.levels[i] {
+		for cur := preElement.levels[i]; cur != nil; preElement = cur.levels[i] {
 			// 当前小于key 则继续
-			if bytes.Compare(preElement.data.Key, key) == -1 {
+			if bytes.Compare(cur.data.Key, key) == -1 {
 				continue
 			}
 			// 等于 则返回
-			if bytes.Compare(preElement.data.Key, key) == 0 {
+			if bytes.Compare(cur.data.Key, key) == 0 {
 				return preElement.data.Value
 			}
 			// 大于 则跳出
-			if bytes.Compare(preElement.data.Key, key) == 1 {
+			if bytes.Compare(cur.data.Key, key) == 1 {
 				return nil
 			}
 		}
