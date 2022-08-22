@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"math"
 	"math/rand"
 )
 
@@ -92,6 +93,9 @@ func (sl *SkipList) Add(data KVData) {
 		elem.levels[i] = insertLocation.levels[i]
 		preInsertLocation.levels[i] = elem.levels[i]
 	}
+
+	// 修改跳表高度
+	sl.level = int(math.Max(float64(sl.level), float64(level)))
 
 }
 
