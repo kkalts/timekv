@@ -14,15 +14,89 @@
 
 package utils
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestSkipListAdd(t *testing.T) {
+	//for i := 0; i <100 ; i++ {
+	//	time.Sleep(time.Millisecond*50)
+	//	skipList := NewSkipList()
+	//	var data1 = KVData{
+	//		Key:   []byte("testKey1"),
+	//		Value: []byte("value1"),
+	//	}
+	//	var data3 = KVData{
+	//		Key:   []byte("testKey3"),
+	//		Value: []byte("value3"),
+	//	}
+	//	var data2 = KVData{
+	//		Key:   []byte("testKey2"),
+	//		Value: []byte("value2"),
+	//	}
+	//	var data4 = KVData{
+	//		Key:   []byte("testKey4"),
+	//		Value: []byte("value4"),
+	//	}
+	//	var data5 = KVData{
+	//		Key:   []byte("testKey5"),
+	//		Value: []byte("value5"),
+	//	}
+	//	skipList.Add(data1)
+	//	skipList.Add(data3)
+	//	skipList.Add(data5)
+	//	skipList.Add(data2)
+	//	skipList.Add(data4)
+	//	fmt.Println("sl.level=",skipList.level)
+	//	//find := skipList.Find([]byte("testKey4"))
+	//	//fmt.Println("find=",string(find))
+	//}
+
 	skipList := NewSkipList()
+	skipList2 := NewSkipList()
 	var data1 = KVData{
 		Key:   []byte("testKey1"),
 		Value: []byte("value1"),
 	}
+	var data3 = KVData{
+		Key:   []byte("testKey3"),
+		Value: []byte("value3"),
+	}
+	var data2 = KVData{
+		Key:   []byte("testKey2"),
+		Value: []byte("value2"),
+	}
+	var data4 = KVData{
+		Key:   []byte("testKey4"),
+		Value: []byte("value4"),
+	}
+	var data5 = KVData{
+		Key:   []byte("testKey5"),
+		Value: []byte("value5"),
+	}
+	var data6 = KVData{
+		Key:   []byte("testKey5"),
+		Value: []byte("value6"),
+	}
 	skipList.Add(data1)
+	skipList.Add(data3)
+	skipList.Add(data5)
+	skipList.Add(data2)
+	skipList.Add(data4)
+	skipList.Add(data6)
+	fmt.Println("sl.level=", skipList.level)
+
+	skipList2.Add2(data1)
+	skipList2.Add2(data3)
+	skipList2.Add2(data5)
+	skipList2.Add2(data2)
+	skipList2.Add2(data4)
+	skipList2.Add2(data6)
+	fmt.Println("skipList2.level=", skipList2.level)
+	//fmt.Println("find=",string(skipList.Find([]byte("testKey5"))))
+
+	fmt.Println("find=", string(skipList.Find([]byte("testKey5"))))
 }
 func TestSkipListFind(t *testing.T) {
 	//skipList := NewSkipList()
