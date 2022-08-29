@@ -1,11 +1,9 @@
-package utils
+package skiplist
 
 import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-
-	//"fmt"
 	"math/rand"
 	"time"
 )
@@ -13,12 +11,15 @@ import (
 /*
 	2022-08-18
 	SkipList V1.0
+	初始版跳表 实现功能：增 删 改
+	优化点：节点比较算法、随机层高
 */
 
 /*
 	跳表中的每个节点
 */
 type Element struct {
+	Score  float64    // 分数 加快比较与查找
 	data   KVData     // 真正的数据存放
 	levels []*Element // 当前节点每层指向的节点
 }
@@ -35,10 +36,6 @@ type SkipList struct {
 const MaxLevel = 10
 
 func NewSkipList() *SkipList {
-	//headerData:=KVData{
-	//	[]byte("0"),
-	//	[]byte("0"),
-	//}
 	header := &Element{levels: make([]*Element, MaxLevel)}
 
 	return &SkipList{
@@ -130,8 +127,9 @@ func (sl *SkipList) Add(data KVData) {
 	}
 }
 
-func NewElement(data KVData, level int) *Element {
+func NewElement(data KVData, level int, score float64) *Element {
 	return &Element{
+		Score:  score,
 		data:   data,
 		levels: make([]*Element, level),
 	}
@@ -208,10 +206,95 @@ func (sl *SkipList) Find(key []byte) []byte {
 
 /*
 	删除节点
-		先找到节点 如果找不到返回nil
+		先找到节点 如果找不到返回nil 或不返回
 
 	timekv应该是不需要/不能 删除节点 只增
+
+	或 应该每层遍历 找要删除的
+
 */
+func (sl *SkipList) Delete(key []byte) {
+	preElement := sl.header
+
+	var prevElementHeaders [MaxLevel]*Element
+	var nextElementHeaders [MaxLevel]*Element
+	for i := sl.level - 1; i >= 0; i-- {
+		prevElementHeaders[i] = preElement
+		nextElementHeaders[i] = preElement.levels[i]
+		// 首先找到元素应该插入的位置 从最高层开始找
+		for cur := preElement.levels[i]; cur != nil; cur = preElement.levels[i] {
+
+			// 大于等于 则在 当前之前增加节点 找到位置
+			//comp := bytes.Compare(cur.data.Key, data.Key)
+			//fmt.Println("comp=",comp)
+			if comp := bytes.Compare(cur.data.Key, key); comp >= 0 {
+				// 相等 则找到 如果没有 则可以return
+				// 找到 则可break 然后根据prevElementHeaders做处理
+				if comp == 0 {
+					// 需要删除的 则记录当前之后的
+					nextElementHeaders[i] = cur.levels[i]
+				}
+				// 大于 则这层没有要删除的 将prevElementHeaders[i] 归空
+				prevElementHeaders[i] = nil
+				break
+			}
+			// 小于 在层中平行移动
+			preElement = cur
+			//fmt.Println("preElement=",*preElement)
+			// 记录每层的最后一个小于当前data的元素
+			prevElementHeaders[i] = preElement
+			// 则要插入的节点的下一个就是 prevElementHeaders[i].next 即 elem.next = prevElementHeaders[i].next
+		}
+	}
+
+	// 从底层开始删除 如果prevElementHeaders中没有的 则不用管
+	for i := 0; i < sl.level; i++ {
+		if prevElementHeaders[i] != nil {
+			prevElementHeaders[i].levels[i] = nextElementHeaders[i]
+		}
+	}
+}
+
+/*
+	快速比较
+		使用分数
+		当前节点 cur 与 参数key score比较
+		 1: cur > key
+		 0: cur = key
+		 -1 cur < key
+*/
+func compare(score float64, key []byte, cur *Element) int {
+	if score == cur.Score {
+		// 分数相同 则需要全比较
+		return bytes.Compare(cur.data.Key, key)
+	}
+
+	if cur.Score > score {
+		return 1
+	} else {
+		return -1
+	}
+}
+
+/*
+	计算分数
+		对于key 对key的前8位进行计算
+这里计算一个分数值，用来加速比较。
+	举个例子：aabbccddee和 aabbccdeee，如果用 bytes的 compare，需要比较到第8个字符才能算出大小关系，如果引入 hash，对前8位计算出一个分数值，比较起来就会很快了
+*/
+func calScore(key []byte) (score float64) {
+	var hash uint64
+	l := len(key)
+	if l > 8 {
+		l = 8 // 为什么是8？
+	}
+	for i := 0; i < l; i++ {
+		u := uint64(64 - 8 - i*8)
+		hash |= uint64(key[i] << u)
+	}
+	score = float64(hash)
+	return
+}
 
 /*
 	打印skiplist
