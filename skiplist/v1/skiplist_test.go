@@ -1,7 +1,6 @@
 package skiplist
 
 import (
-	"bytes"
 	"fmt"
 	"testing"
 )
@@ -118,25 +117,88 @@ func TestSkipListAdd(t *testing.T) {
 		Key:   IntToBytes(6),
 		Value: IntToBytes(6),
 	}
+	var data7 = KVData{
+		Key:   IntToBytes(3),
+		Value: IntToBytes(7),
+	}
 	skipList2.Add(data1)
 	skipList2.Add(data3)
 	skipList2.Add(data5)
 	skipList2.Add(data2)
 	skipList2.Add(data4)
 	skipList2.Add(data6)
+	skipList2.Add(data7)
 
 	PrintSkipListInt(skipList2)
 
-	sortB, curS, preS := CheckSkipListSortInt(skipList2)
-	fmt.Printf("%v 当前KEY=%d 前一个KEY=%d \n", sortB, curS, preS)
+	sortB, _, _ := CheckSkipListSortInt(skipList2)
+	fmt.Printf("%v \n", sortB)
 
-	compare := bytes.Compare(IntToBytes(1), IntToBytes(2))
-	fmt.Println("compare后", compare)
+	find := skipList2.Find(IntToBytes(3))
+	fmt.Println("find=", BytesToInt(find))
 
 }
 func TestSkipListFind(t *testing.T) {
 	//skipList := NewSkipList()
 
+}
+
+func TestDelete(t *testing.T) {
+	skipList2 := NewSkipList()
+	var data1 = KVData{
+		Key:   IntToBytes(1),
+		Value: IntToBytes(1),
+	}
+	var data3 = KVData{
+		Key:   IntToBytes(3),
+		Value: IntToBytes(3),
+	}
+	var data2 = KVData{
+		Key:   IntToBytes(2),
+		Value: IntToBytes(2),
+	}
+	var data4 = KVData{
+		Key:   IntToBytes(4),
+		Value: IntToBytes(4),
+	}
+	var data5 = KVData{
+		Key:   IntToBytes(5),
+		Value: IntToBytes(5),
+	}
+	var data6 = KVData{
+		Key:   IntToBytes(6),
+		Value: IntToBytes(6),
+	}
+	var data7 = KVData{
+		Key:   IntToBytes(3),
+		Value: IntToBytes(7),
+	}
+	skipList2.Add(data1)
+	skipList2.Add(data3)
+	skipList2.Add(data5)
+	skipList2.Add(data2)
+	skipList2.Add(data4)
+	skipList2.Add(data6)
+	skipList2.Add(data7)
+
+	PrintSkipListInt(skipList2)
+	// 删除节点
+	skipList2.Delete(IntToBytes(3))
+	//skipList2.Delete(IntToBytes(1))
+	fmt.Println("---------------删除后--------------------")
+	PrintSkipListInt(skipList2)
+	var data8 = KVData{
+		Key:   IntToBytes(8),
+		Value: IntToBytes(8),
+	}
+	skipList2.Add(data8)
+	fmt.Println("---------------增加后--------------------")
+	PrintSkipListInt(skipList2)
+
+	skipList2.Delete(IntToBytes(2))
+	//skipList2.Delete(IntToBytes(1))
+	fmt.Println("---------------删除后--------------------")
+	PrintSkipListInt(skipList2)
 }
 
 //func RandString(len int) string {

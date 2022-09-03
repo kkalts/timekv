@@ -48,6 +48,7 @@ func NewSkipList() *SkipList {
 	层高判断
 	概率性的
 	随机的
+	 需要优化
 */
 func (sl *SkipList) RandLevel() int {
 	maxLevel := 10
@@ -55,8 +56,6 @@ func (sl *SkipList) RandLevel() int {
 	for ; i < maxLevel; i++ {
 		rand.Seed(time.Now().UnixNano())
 		intn := rand.Intn(2)
-		//fmt.Println("intn=",intn)
-		//fmt.Println("i=",i)
 		if intn == 0 {
 			return i
 		}
@@ -77,6 +76,8 @@ func (sl *SkipList) Add(data KVData) {
 	preElement := sl.header
 	var elem *Element
 
+	score := calScore(data.Key)
+
 	var prevElementHeaders [MaxLevel]*Element
 	for i := sl.level - 1; i >= 0; i-- {
 		prevElementHeaders[i] = preElement
@@ -86,7 +87,7 @@ func (sl *SkipList) Add(data KVData) {
 			// 大于等于 则在 当前之前增加节点 找到位置
 			//comp := bytes.Compare(cur.data.Key, data.Key)
 			//fmt.Println("comp=",comp)
-			if comp := bytes.Compare(cur.data.Key, data.Key); comp >= 0 {
+			if comp := compare(score, data.Key, cur); comp >= 0 {
 				// 相等 则替换 这里都是指针 一更换 则key对应的值全更换
 				if comp == 0 {
 					elem = cur
@@ -106,8 +107,7 @@ func (sl *SkipList) Add(data KVData) {
 	}
 	// 插入元素
 	level := sl.RandLevel()
-	level = 10
-
+	//level = 1
 	// 如果随机出来很大的层 则只提取一层
 	if level > sl.level {
 		level = sl.level + 1
@@ -127,7 +127,11 @@ func (sl *SkipList) Add(data KVData) {
 	}
 }
 
-func NewElement(data KVData, level int, score float64) *Element {
+func NewElement(data KVData, level int) *Element {
+	//
+
+	score := calScore(data.Key)
+
 	return &Element{
 		Score:  score,
 		data:   data,
@@ -154,7 +158,7 @@ func (sl *SkipList) Add2(data KVData) *Element {
 	}
 
 	level := sl.RandLevel()
-	level = 10
+
 	if level > sl.level {
 		level = sl.level + 1
 		update[sl.level] = sl.header
@@ -179,6 +183,7 @@ func (sl *SkipList) Add2(data KVData) *Element {
 
 func (sl *SkipList) Find(key []byte) []byte {
 	preElement := sl.header // header是空的
+	score := calScore(key)
 	// header.levels[0]=第一层第一个 ...
 	// 逐行查找 从最高层开始 每层找不到 则向下
 	for i := sl.level - 1; i >= 0; i-- {
@@ -186,17 +191,17 @@ func (sl *SkipList) Find(key []byte) []byte {
 		for cur := preElement.levels[i]; cur != nil; cur = preElement.levels[i] {
 
 			// 当前小于key 则继续
-			if bytes.Compare(cur.data.Key, key) == -1 {
+			if compare(score, key, cur) == -1 {
 				preElement = cur
 				//cur = preElement
 				continue
 			}
 			// 等于 则返回
-			if bytes.Compare(cur.data.Key, key) == 0 {
+			if compare(score, key, cur) == 0 {
 				return cur.data.Value
 			}
 			// 大于 则跳出
-			if bytes.Compare(cur.data.Key, key) == 1 {
+			if compare(score, key, cur) == 1 {
 				break
 			}
 		}
@@ -207,10 +212,13 @@ func (sl *SkipList) Find(key []byte) []byte {
 /*
 	删除节点
 		先找到节点 如果找不到返回nil 或不返回
+		找到 则记录其后面的节点
+		在一层中最终都没找到 则需要销毁preE中的这层的节点
+
+	这里只删除 不调整层高
 
 	timekv应该是不需要/不能 删除节点 只增
 
-	或 应该每层遍历 找要删除的
 
 */
 func (sl *SkipList) Delete(key []byte) {
@@ -220,22 +228,24 @@ func (sl *SkipList) Delete(key []byte) {
 	var nextElementHeaders [MaxLevel]*Element
 	for i := sl.level - 1; i >= 0; i-- {
 		prevElementHeaders[i] = preElement
-		nextElementHeaders[i] = preElement.levels[i]
+		//fmt.Println("第一层循环prevElementHeaders[i] key=",BytesToInt(prevElementHeaders[i].data.Key))
+		//nextElementHeaders[i] = preElement.levels[i]
 		// 首先找到元素应该插入的位置 从最高层开始找
 		for cur := preElement.levels[i]; cur != nil; cur = preElement.levels[i] {
 
 			// 大于等于 则在 当前之前增加节点 找到位置
 			//comp := bytes.Compare(cur.data.Key, data.Key)
 			//fmt.Println("comp=",comp)
-			if comp := bytes.Compare(cur.data.Key, key); comp >= 0 {
+			if comp := compare(calScore(key), key, cur); comp >= 0 {
 				// 相等 则找到 如果没有 则可以return
 				// 找到 则可break 然后根据prevElementHeaders做处理
 				if comp == 0 {
 					// 需要删除的 则记录当前之后的
 					nextElementHeaders[i] = cur.levels[i]
+				} else {
+					prevElementHeaders[i] = nil
 				}
-				// 大于 则这层没有要删除的 将prevElementHeaders[i] 归空
-				prevElementHeaders[i] = nil
+
 				break
 			}
 			// 小于 在层中平行移动
@@ -248,10 +258,17 @@ func (sl *SkipList) Delete(key []byte) {
 	}
 
 	// 从底层开始删除 如果prevElementHeaders中没有的 则不用管
+
 	for i := 0; i < sl.level; i++ {
+
 		if prevElementHeaders[i] != nil {
+			//fmt.Printf("i=%d 每层prevElementHeaders[i] key=%d \n",i,BytesToInt(prevElementHeaders[i].data.Key))
 			prevElementHeaders[i].levels[i] = nextElementHeaders[i]
 		}
+		//if nextElementHeaders[i]!=nil{
+		//	fmt.Printf("i=%d 每层的nextElementHeaders[i] key=%d \n",i,BytesToInt(nextElementHeaders[i].data.Key))
+		//
+		//}
 	}
 }
 
@@ -288,6 +305,7 @@ func calScore(key []byte) (score float64) {
 	if l > 8 {
 		l = 8 // 为什么是8？
 	}
+	// ???
 	for i := 0; i < l; i++ {
 		u := uint64(64 - 8 - i*8)
 		hash |= uint64(key[i] << u)
@@ -319,7 +337,7 @@ func PrintSkipListInt(sl *SkipList) {
 		preElement := sl.header // 每一层从头开始
 		// 找 每层的 头 尾 中间与key比较
 		for cur := preElement.levels[i]; cur != nil; cur = preElement.levels[i] {
-			fmt.Printf("%d.%d ->", BytesToInt(cur.data.Value), BytesToInt(cur.data.Value))
+			fmt.Printf("%d.%d ->", BytesToInt(cur.data.Key), BytesToInt(cur.data.Value))
 			preElement = cur
 			continue
 		}
@@ -358,7 +376,7 @@ func CheckSkipListSortInt(sl *SkipList) (bool, int, int) {
 		for cur := preElement.levels[i]; cur != nil; cur = preElement.levels[i] {
 			if preElement.data.Key != nil {
 				// 比较pre和cur 当前小于 之前的 则false
-				compare := bytes.Compare(cur.data.Key, preElement.data.Value)
+				compare := compare(calScore(preElement.data.Key), preElement.data.Key, cur)
 				if compare == -1 {
 					fmt.Println("compare=", compare)
 					fmt.Println("level=", i+1)
