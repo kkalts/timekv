@@ -2,6 +2,8 @@ package v1
 
 import (
 	"encoding/binary"
+	"github.com/pkg/errors"
+	"log"
 	"sync/atomic"
 	"unsafe"
 )
@@ -101,12 +103,21 @@ func (s *Arena) allocate(size uint32) uint32 {
 
 // ------------------------接口封装-----------------------------------------------
 
+func AssertTrue(b bool) {
+	if !b {
+		log.Fatalf("%+v", errors.Errorf("Assert failed"))
+	}
+}
+
 /*
 	在Arena中放置一个Node节点
 	申请一个NODE节点的空间
 
 	params:
 		当前节点的层高
+
+	这个方法实质是为 一个node空出一片空间  实质还并没有node放进去
+	实质是指针
 */
 func (s *Arena) putNode(height int) uint32 {
 	// 一个node节点的大小 这里会直接按照maxLevel来计算 nodeSize = 8+4+2+2 + maxLevel*4
@@ -117,18 +128,21 @@ func (s *Arena) putNode(height int) uint32 {
 
 	unusedSize := (maxHeight - height) * uint32Size
 
-	shouldSize := roundUP(uint32(nodeSize-unusedSize), 8)
+	//shouldSize := roundUP(uint32(nodeSize-unusedSize), 8)
 
 	//roundUP(shouldSize,8)
+	// 这里要 + nodeAlign是因为 要给足够的size 下面要做内存对齐 最大也只会加nodeAlign 且不会再改变arena的n 则需要这里的size足够大
+	n := s.allocate(uint32(nodeSize - unusedSize + nodeAlign)) // offset
 
-	n := s.allocate(shouldSize) // offset
-
-	// 进行内存对齐 为了内存操作更快速
+	// 进行内存对齐 为了内存操作更快速  这里因为key value不做内存对齐 则每次去分配的时候 不一定是对齐的 则需要分配后做内存对齐
+	// 而不是想CSAPP中那样在分配的时候 分配对齐的size 或者 在分配的时候要简单对齐 之后再做对齐
 
 	//finalNodeOffset:=roundUP(n,8)
-	// 或者 m := (n + uint32(nodeAlign)) & ^uint32(nodeAlign)
+	// 这里也可以用roundUP
+	// 允许在allocate中实质分配到内存 有部分空白
+	m := (n + uint32(nodeAlign)) & ^uint32(nodeAlign)
 
-	return n
+	return m
 }
 
 /*
@@ -165,7 +179,7 @@ func roundUP(x uint32, n uint32) uint32 {
 
 /*
 	在arena上分配node的key
-		不做内存对齐？
+		不做内存对齐？ 不做内存对齐
 */
 func (s *Arena) putKey(key []byte) uint32 {
 	keySize := uint32(len(key))
@@ -178,10 +192,10 @@ func (s *Arena) putKey(key []byte) uint32 {
 }
 
 /*
-	获取key
+	获取key 不内存对齐
 */
-func (s *Arena) getKey() {
-
+func (s *Arena) getKey(keyOffset uint32, keySize uint16) []byte {
+	return s.buf[keyOffset : keyOffset+uint32(keySize)]
 }
 
 /*
@@ -203,8 +217,10 @@ func (s *Arena) putValue(value ValueStruct) uint32 {
 /*
 	获取value
 */
-func (s *Arena) getValue() {
-
+func (s *Arena) getValue(valOffset, valSize uint32) ValueStruct {
+	var result ValueStruct
+	result.DecodeValue(s.buf[valOffset : valOffset+valSize])
+	return result
 }
 
 type ValueStruct struct {
