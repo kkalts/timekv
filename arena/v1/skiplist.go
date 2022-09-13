@@ -46,15 +46,16 @@ type SkipList struct {
 
 const MaxLevel = 10
 
-func NewSkipList() *SkipList {
+func NewSkipList(n int64) *SkipList {
 	sl := &SkipList{}
 	sl.maxLevel = maxHeight
-	sl.arena = NewArena(1 << 16)
+	sl.arena = NewArena(n)
 	sl.lock = sync.RWMutex{}
 	val := ValueStruct{}
 	headerNode := NewNode(nil, val, sl.arena, sl.maxLevel)
 	headerOffset := sl.arena.getNodeOffset(headerNode)
 	sl.headOffset = headerOffset
+	sl.level = 1
 	return sl
 }
 
@@ -174,7 +175,7 @@ func NewNode(key []byte, v ValueStruct, arena *Arena, height int) *node {
 	node.value = val
 	node.keySize = uint16(len(key))
 	node.keyOffset = keyOffset
-
+	node.height = uint16(height)
 	return node
 }
 

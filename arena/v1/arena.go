@@ -153,16 +153,26 @@ func (s *Arena) getNode(offset uint32) *node {
 	if offset == 0 {
 		return nil
 	}
-	b := s.buf[offset] // ?? 这里获取到node开始的指针
+	//b := s.buf[offset] // ?? 这里获取到node开始的指针 这里不能把 s.buf[offset]拿出来 不然就出错 为什么？
+	//fmt.Println("b=",b)
 	// []byte转node指针
-	return (*node)(unsafe.Pointer(&b))
+	//return (*node)(unsafe.Pointer(&b))
+	return (*node)(unsafe.Pointer(&s.buf[offset]))
 }
 
 /*
 	获取node的offset
 */
 func (s *Arena) getNodeOffset(nodeV *node) uint32 {
-	return 0
+	if nodeV == nil {
+		// 空指针
+		return 0
+	}
+	//获取某个节点,在 arena 当中的偏移量
+	//unsafe.Pointer等价于void*,uintptr可以专门把void*的对于地址转化为数值型变量
+	//fmt.Println("uintptr(unsafe.Pointer(nodeV))=",uintptr(unsafe.Pointer(nodeV)))
+	//fmt.Println("uintptr(unsafe.Pointer(&s.buf[0]))=",uintptr(unsafe.Pointer(&s.buf[0])))
+	return uint32(uintptr(unsafe.Pointer(nodeV)) - uintptr(unsafe.Pointer(&s.buf[0])))
 }
 
 /*
@@ -183,9 +193,8 @@ func roundUP(x uint32, n uint32) uint32 {
 */
 func (s *Arena) putKey(key []byte) uint32 {
 	keySize := uint32(len(key))
-	shouldSize := roundUP(keySize, 8)
-	offset := s.allocate(shouldSize)
-	buf := s.buf[offset : offset+shouldSize]
+	offset := s.allocate(keySize)
+	buf := s.buf[offset : offset+keySize]
 
 	copy(buf, key)
 	return offset
