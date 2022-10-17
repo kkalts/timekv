@@ -160,7 +160,6 @@ func NewNode(key []byte, v ValueStruct, arena *Arena, height int) *node {
 	//
 
 	score := calScore(key)
-
 	keyOffset := arena.putKey(key)
 	valueOffset := arena.putValue(v)
 	valueSize := v.EncodeSize()
