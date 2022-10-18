@@ -9,12 +9,13 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func RandString(len int) string {
 	bytes := make([]byte, len)
+	rand.Seed(time.Now().UnixNano())
 	for i := 0; i < len; i++ {
-		rand.Seed(int64(i))
 		b := rand.Intn(26) + 65
 		bytes[i] = byte(b)
 	}
@@ -23,20 +24,35 @@ func RandString(len int) string {
 
 func TestSkipListBasicCRUD(t *testing.T) {
 	list := NewSkipList(1000)
-
+	key1 := RandString(12)
+	key2 := RandString(10)
+	key3 := RandString(11)
+	key4 := RandString(15)
+	fmt.Println(key1)
+	fmt.Println(key2)
+	fmt.Println(key3)
+	fmt.Println(key4)
 	//Put & Get
-	entry1 := NewEntry([]byte(RandString(10)), []byte("Val1"))
+	entry1 := NewEntry([]byte(key1), []byte("Val1"))
 	list.Add(entry1)
 	vs := list.Get(entry1.Key)
 	assert.Equal(t, entry1.Value, vs.Value)
+	list.Draw(true)
 
-	entry2 := NewEntry([]byte(RandString(10)), []byte("Val2"))
+	entry2 := NewEntry([]byte(key2), []byte("Val2"))
 	list.Add(entry2)
 	vs = list.Get(entry2.Key)
 	assert.Equal(t, entry2.Value, vs.Value)
+	list.Draw(true)
+
+	entry3 := NewEntry([]byte(key3), []byte("Val3"))
+	list.Add(entry3)
+	vs = list.Get(entry3.Key)
+	assert.Equal(t, entry3.Value, vs.Value)
+	list.Draw(true)
 
 	//Get a not exist entry
-	assert.Nil(t, list.Get([]byte(RandString(10))).Value)
+	assert.Nil(t, list.Get([]byte(key4)).Value)
 
 	//Update a entry
 	entry2_new := NewEntry(entry1.Key, []byte("Val1+1"))

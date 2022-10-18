@@ -314,6 +314,13 @@ func (s *SkipList) Add(e *Entry) {
 		// 如果方法返回的前后节点相同 则是key相同的  需要更新
 		// 不是从每一层的头节点开始 这里从每一个上一层的前一个节点开始
 		prevList[i], nextList[i] = s.findSpliceForLevel(key, prevList[i+1], int(i))
+		//if s.arena.getNode(prevList[i])!=nil{
+		//	fmt.Println("prevList[i]=",string(s.arena.getNode(prevList[i]).key(s.arena)))
+		//}
+		//if s.arena.getNode(nextList[i])!=nil{
+		//	fmt.Println("nextList[i]=",string(s.arena.getNode(nextList[i]).key(s.arena)))
+		//}
+
 		if prevList[i] == nextList[i] {
 			// 找到相同的key 则需要更新 这里更新不需要CAS吗？ 是因为只更新value 不更新key？ 但是value会更新覆盖吧
 			// 放入arena（在arena上新放入）
@@ -328,7 +335,7 @@ func (s *SkipList) Add(e *Entry) {
 
 		// 随机出层高
 		randHeight := s.randomHeight()
-
+		//randHeight = 3
 		// 构造节点
 		insertNode := newNode(s.arena, key, v, randHeight)
 
@@ -347,7 +354,27 @@ func (s *SkipList) Add(e *Entry) {
 			// 这里需要CAS处理 （不考虑分布式） 如果有并发操作 则需要更新数据（是否会造成更新丢失？）
 			// 每层都需要在循环中 一直CAS处理
 			for {
-
+				// 按理来说 增加一个值后
+				if s.arena.getNode(prevList[i]) == nil {
+					// 这里是为新层级打基础 说明randHeight > listHeight
+					// 就相当于 之前的跳表中的
+					/*
+						headerOffset := sl.headOffset // 获取到头部元素的offset
+						// 获取到node
+						headerNode := sl.arena.getNode(headerOffset)
+						prevElementHeaders[sl.level] = headerNode
+						这部分
+					*/
+					//fmt.Println(i)
+					// rand出相同层次 且都大于1 会有问题
+					//AssertTrue(i > 1) // This cannot happen in base level. 总会有一层
+					// We haven't computed prev, next for this level because height exceeds old listHeight.
+					// For these levels, we expect the lists to be sparse, so we can just search from head.
+					prevList[i], nextList[i] = s.findSpliceForLevel(key, s.headOffset, i)
+					// Someone adds the exact same key before we are able to do so. This can only happen on
+					// the base level. But we know we are not on the base level.
+					//AssertTrue(prevList[i] != nextList[i])
+				}
 				// 正常如下 使用CAS
 				insertNode.tower[i] = nextList[i]
 				prevNode := s.arena.getNode(prevList[i])
@@ -660,6 +687,7 @@ func (s *SkipList) findLast() *node {
 }
 
 func (s *SkipList) Draw(align bool) {
+	fmt.Println("--------------------------------------------------------")
 	// 逐行查找 从最高层开始 每层找不到 则向下
 	for i := s.level - 1; i >= 0; i-- {
 		preElementOffset := s.headOffset // 每一层从头开始
@@ -678,4 +706,5 @@ func (s *SkipList) Draw(align bool) {
 		}
 		fmt.Println()
 	}
+	fmt.Println("--------------------------------------------------------")
 }
