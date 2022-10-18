@@ -1,4 +1,4 @@
-package v1
+package utils
 
 import (
 	"encoding/binary"
@@ -11,6 +11,9 @@ import (
 /*
 	实现Arena基本操作
 */
+const (
+	nodeAlign = int(unsafe.Sizeof(uint64(0))) - 1
+)
 
 /*
 	 内存分配管理 单元 （只分配 不释放）
