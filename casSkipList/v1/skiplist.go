@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"strings"
 
 	"sync/atomic"
 	"unsafe"
@@ -330,87 +331,87 @@ func (s *SkipList) Add(e *Entry) {
 			// 编码后的Value放入node中（只是让key指向新value)
 			prevNode := s.arena.getNode(prevList[i])
 			prevNode.setValue(encValue)
-		}
-		// 没找到相同的 则需要插入
-
-		// 随机出层高
-		randHeight := s.randomHeight()
-		//randHeight = 3
-		// 构造节点
-		insertNode := newNode(s.arena, key, v, randHeight)
-
-		// 使用CAS更新跳表的层高参数
-		// 再次获取listHeight 获取最新的 可能在这个Add的时候 已经有新的add 改变了height 是否会影响之前的？
-		listHeight = s.getHeight()
-		for int32(randHeight) > listHeight {
-			// 一直更新跳表高度 直到和randHeight一样
-			if atomic.CompareAndSwapInt32(&s.level, listHeight, int32(randHeight)) {
-				break
-			}
-			listHeight = s.getHeight()
-		}
-		// 从第0层开始插入跳表 但是这里注意 整个方法并没有一开始就加锁 则可能造成并发写冲突
-		for i := 0; i < randHeight; i++ {
-			// 这里需要CAS处理 （不考虑分布式） 如果有并发操作 则需要更新数据（是否会造成更新丢失？）
-			// 每层都需要在循环中 一直CAS处理
-			for {
-				// 按理来说 增加一个值后
-				if s.arena.getNode(prevList[i]) == nil {
-					// 这里是为新层级打基础 说明randHeight > listHeight
-					// 就相当于 之前的跳表中的
-					/*
-						headerOffset := sl.headOffset // 获取到头部元素的offset
-						// 获取到node
-						headerNode := sl.arena.getNode(headerOffset)
-						prevElementHeaders[sl.level] = headerNode
-						这部分
-					*/
-					//fmt.Println(i)
-					// rand出相同层次 且都大于1 会有问题
-					//AssertTrue(i > 1) // This cannot happen in base level. 总会有一层
-					// We haven't computed prev, next for this level because height exceeds old listHeight.
-					// For these levels, we expect the lists to be sparse, so we can just search from head.
-					prevList[i], nextList[i] = s.findSpliceForLevel(key, s.headOffset, i)
-					// Someone adds the exact same key before we are able to do so. This can only happen on
-					// the base level. But we know we are not on the base level.
-					//AssertTrue(prevList[i] != nextList[i])
-				}
-				// 正常如下 使用CAS
-				insertNode.tower[i] = nextList[i]
-				prevNode := s.arena.getNode(prevList[i])
-				//prevNode.tower[i] = s.arena.getNodeOffset(insertNode)
-				// 将prevNode.tower[i] 由next[i] 更换为insertNode
-				// 直到prevNode.tower[i] == next[i] 才将next[i] 更换为s.arena.getNodeOffset(insertNode)
-				// 问题：如果这里已经被改变 则永远循环？ 看下面
-				if prevNode.casNextOffset(i, nextList[i], s.arena.getNodeOffset(insertNode)) {
-					break
-				}
-				// 如果能够在上面break 最好 如果不能 则可能有并发了 需要再次获取key的插入位置
-
-				prevList[i], nextList[i] = s.findSpliceForLevel(key, prevList[i], i)
-				if prevList[i] == nextList[i] {
-					// 之前检查过是不等的 这里相等了 说明已经有节点插入了 并发了 则更新
-					// 这里检查是？？？
-					// 两个A,B协程对于相同key并成冲突写 都是从第0层开始插入 第一个A来的时候不会到这步 后面B来的时候 走到这边 将值更新为B后返回，
-					// A协程还在继续插入 随机层高也是A的 但值是B的
-					AssertTruef(i == 0, "Equality can happen only on base level: %d", i)
-					// 放入arena（在arena上新放入）
-					valueOffset := s.arena.putValue(v)
-					// 编码value (valueoffset和valuesize编码在一起）
-					encValue := encodeValue(valueOffset, v.EncodeSize())
-					// 编码后的Value放入node中（只是让key指向新value)
-					prevNode := s.arena.getNode(prevList[i])
-					prevNode.setValue(encValue)
-					// 更新后跳出
-					return
-				}
-				// 同时这里 上面CAS 比较  prevNode.tower[i] != next[i] 到这里 重新计算key应该插入的位置
-				// 如果是两个协程1，2 处理不同的key 并发插入 ，1插入后，2的不相等了 要重新找key应该插入的位置
-				// 这里就是 重新计算后 没有相同key的情况 不用更新 重新找到新的要插入的地方 继续插入---不同key的并发插入问题
-			}
+			return
 		}
 
 	}
+	// 随机出层高
+	randHeight := s.randomHeight()
+	//randHeight = 3
+	// 构造节点
+	insertNode := newNode(s.arena, key, v, randHeight)
+
+	// 使用CAS更新跳表的层高参数
+	// 再次获取listHeight 获取最新的 可能在这个Add的时候 已经有新的add 改变了height 是否会影响之前的？
+	listHeight = s.getHeight()
+	for int32(randHeight) > listHeight {
+		// 一直更新跳表高度 直到和randHeight一样
+		if atomic.CompareAndSwapInt32(&s.level, listHeight, int32(randHeight)) {
+			break
+		}
+		listHeight = s.getHeight()
+	}
+	// 从第0层开始插入跳表 但是这里注意 整个方法并没有一开始就加锁 则可能造成并发写冲突
+	for i := 0; i < randHeight; i++ {
+		// 这里需要CAS处理 （不考虑分布式） 如果有并发操作 则需要更新数据（是否会造成更新丢失？）
+		// 每层都需要在循环中 一直CAS处理
+		for {
+			// 按理来说 增加一个值后
+			if s.arena.getNode(prevList[i]) == nil {
+				// 这里是为新层级打基础 说明randHeight > listHeight
+				// 就相当于 之前的跳表中的
+				/*
+					headerOffset := sl.headOffset // 获取到头部元素的offset
+					// 获取到node
+					headerNode := sl.arena.getNode(headerOffset)
+					prevElementHeaders[sl.level] = headerNode
+					这部分
+				*/
+				//fmt.Println(i)
+				// rand出相同层次 且都大于1 会有问题
+				AssertTrue(i > 1) // This cannot happen in base level. 总会有一层
+				// We haven't computed prev, next for this level because height exceeds old listHeight.
+				// For these levels, we expect the lists to be sparse, so we can just search from head.
+				prevList[i], nextList[i] = s.findSpliceForLevel(key, s.headOffset, i)
+				// Someone adds the exact same key before we are able to do so. This can only happen on
+				// the base level. But we know we are not on the base level.
+				AssertTrue(prevList[i] != nextList[i])
+			}
+			// 正常如下 使用CAS
+			insertNode.tower[i] = nextList[i]
+			prevNode := s.arena.getNode(prevList[i])
+			//prevNode.tower[i] = s.arena.getNodeOffset(insertNode)
+			// 将prevNode.tower[i] 由next[i] 更换为insertNode
+			// 直到prevNode.tower[i] == next[i] 才将next[i] 更换为s.arena.getNodeOffset(insertNode)
+			// 问题：如果这里已经被改变 则永远循环？ 看下面
+			if prevNode.casNextOffset(i, nextList[i], s.arena.getNodeOffset(insertNode)) {
+				break
+			}
+			// 如果能够在上面break 最好 如果不能 则可能有并发了 需要再次获取key的插入位置
+
+			prevList[i], nextList[i] = s.findSpliceForLevel(key, prevList[i], i)
+			if prevList[i] == nextList[i] {
+				// 之前检查过是不等的 这里相等了 说明已经有节点插入了 并发了 则更新
+				// 这里检查是？？？
+				// 两个A,B协程对于相同key并成冲突写 都是从第0层开始插入 第一个A来的时候不会到这步 后面B来的时候 走到这边 将值更新为B后返回，
+				// A协程还在继续插入 随机层高也是A的 但值是B的
+				AssertTruef(i == 0, "Equality can happen only on base level: %d", i)
+				// 放入arena（在arena上新放入）
+				valueOffset := s.arena.putValue(v)
+				// 编码value (valueoffset和valuesize编码在一起）
+				encValue := encodeValue(valueOffset, v.EncodeSize())
+				// 编码后的Value放入node中（只是让key指向新value)
+				prevNode := s.arena.getNode(prevList[i])
+				prevNode.setValue(encValue)
+				// 更新后跳出
+				return
+			}
+			// 同时这里 上面CAS 比较  prevNode.tower[i] != next[i] 到这里 重新计算key应该插入的位置
+			// 如果是两个协程1，2 处理不同的key 并发插入 ，1插入后，2的不相等了 要重新找key应该插入的位置
+			// 这里就是 重新计算后 没有相同key的情况 不用更新 重新找到新的要插入的地方 继续插入---不同key的并发插入问题
+		}
+	}
+
 }
 
 /*
@@ -686,7 +687,63 @@ func (s *SkipList) findLast() *node {
 	}
 }
 
+// getVs return ValueStruct stored in node
+func (n *node) getVs(arena *Arena) ValueStruct {
+	valOffset, valSize := n.getValueOffset()
+	return arena.getValue(valOffset, valSize)
+}
 func (s *SkipList) Draw(align bool) {
+	reverseTree := make([][]string, s.getHeight())
+	head := s.getHead()
+	for level := int(s.getHeight()) - 1; level >= 0; level-- {
+		next := head
+		for {
+			var nodeStr string
+			next = s.getNext(next, int32(level))
+			if next != nil {
+				key := next.key(s.arena)
+				vs := next.getVs(s.arena)
+				nodeStr = fmt.Sprintf("%s(%s)", key, vs.Value)
+			} else {
+				break
+			}
+			reverseTree[level] = append(reverseTree[level], nodeStr)
+		}
+	}
+
+	// align
+	if align && s.getHeight() > 1 {
+		baseFloor := reverseTree[0]
+		for level := 1; level < int(s.getHeight()); level++ {
+			pos := 0
+			for _, ele := range baseFloor {
+				if pos == len(reverseTree[level]) {
+					break
+				}
+				if ele != reverseTree[level][pos] {
+					newStr := fmt.Sprintf(strings.Repeat("-", len(ele)))
+					reverseTree[level] = append(reverseTree[level][:pos+1], reverseTree[level][pos:]...)
+					reverseTree[level][pos] = newStr
+				}
+				pos++
+			}
+		}
+	}
+
+	// plot
+	for level := int(s.getHeight()) - 1; level >= 0; level-- {
+		fmt.Printf("%d: ", level)
+		for pos, ele := range reverseTree[level] {
+			if pos == len(reverseTree[level])-1 {
+				fmt.Printf("%s  ", ele)
+			} else {
+				fmt.Printf("%s->", ele)
+			}
+		}
+		fmt.Println()
+	}
+}
+func (s *SkipList) DrawTest(align bool) {
 	fmt.Println("--------------------------------------------------------")
 	// 逐行查找 从最高层开始 每层找不到 则向下
 	for i := s.level - 1; i >= 0; i-- {

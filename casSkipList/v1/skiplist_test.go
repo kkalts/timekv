@@ -22,11 +22,18 @@ func RandString(len int) string {
 	return string(bytes)
 }
 
+func TestTestSkipListBasicCRUD(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		TestSkipListBasicCRUD(t)
+		time.Sleep(time.Duration(1) * time.Second)
+	}
+
+}
 func TestSkipListBasicCRUD(t *testing.T) {
 	list := NewSkipList(1000)
 	key1 := RandString(12)
-	key2 := RandString(10)
-	key3 := RandString(11)
+	key2 := RandString(16)
+	key3 := RandString(17)
 	key4 := RandString(15)
 	fmt.Println(key1)
 	fmt.Println(key2)
@@ -57,6 +64,8 @@ func TestSkipListBasicCRUD(t *testing.T) {
 	//Update a entry
 	entry2_new := NewEntry(entry1.Key, []byte("Val1+1"))
 	list.Add(entry2_new)
+	fmt.Println(entry2_new.Value)
+	fmt.Println(list.Get(entry2_new.Key).Value)
 	assert.Equal(t, entry2_new.Value, list.Get(entry2_new.Key).Value)
 }
 
