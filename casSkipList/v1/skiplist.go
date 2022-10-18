@@ -46,6 +46,13 @@ type Entry struct {
 	//ValThreshold int64 // ?
 }
 
+func NewEntry(key, value []byte) *Entry {
+	return &Entry{
+		Key:   key,
+		Value: value,
+	}
+}
+
 type node struct {
 	value uint64 // value在arena上的位置（offset） 和 value占据的大小(size) 将offset和size编码在一起 方便cas ？ 有并发操作
 
@@ -97,6 +104,18 @@ type SkipList struct {
 	headOffset uint32 // 跳表头节点 在Arena的offset
 	arena      *Arena // 每个跳表 的 内存管理器
 	maxLevel   int    // 跳表最大高度
+}
+
+func NewSkipList(arenaSize int64) *SkipList {
+	arena := NewArena(arenaSize)
+	headNode := newNode(arena, nil, ValueStruct{}, maxHeight)
+	headOffset := arena.getNodeOffset(headNode)
+	return &SkipList{
+		arena:      arena,
+		level:      1,
+		maxLevel:   maxHeight,
+		headOffset: headOffset,
+	}
 }
 
 /*
@@ -430,8 +449,6 @@ func newNode(arena *Arena, key []byte, v ValueStruct, randHeight int) *node {
 	return node
 }
 
-// 实现跳表迭代器 Iterator
-
 /*
 	获取当前跳表的高度
 */
@@ -458,13 +475,13 @@ func FastRand() uint32
 	并发删除key（删除节点）
 */
 
-/*
-	比较两个key
+/*xi
+比较两个key
 
-	return
-		==0 key1 == key2
-		> 0 key1 > key2
-		< 0 key1 < key2
+return
+	==0 key1 == key2
+	> 0 key1 > key2
+	< 0 key1 < key2
 
 */
 func compareKey(key1, key2 []byte) int {
@@ -486,5 +503,179 @@ func CondPanic(condition bool, err error) {
 func Panic(err error) {
 	if err != nil {
 		panic(err)
+	}
+}
+
+// --------------------------------------------------------------
+
+/*
+	实现跳表迭代器 Iterator
+		参考Leveldb?
+*/
+type SkipListIterator struct {
+	list *SkipList // 跳表
+	n    *node     // 当前节点
+}
+
+func (s *SkipList) NewSkipListIterator() *SkipListIterator {
+	return &SkipListIterator{
+		list: s,
+	}
+}
+
+/*
+	找到第一个
+*/
+func (si *SkipListIterator) Rewind() {
+	si.SeekToFirst()
+}
+
+func (si *SkipListIterator) hasNext() bool {
+	si.Next()
+	return si.Valid()
+}
+
+/*
+	当前节点的数据
+*/
+func (si *SkipListIterator) Item() *Entry {
+	return &Entry{
+		Key:       si.Key(),
+		Value:     si.Value().Value,
+		ExpiresAt: si.Value().ExpireAt,
+		Meta:      si.Value().Meta,
+		Version:   si.Value().Version,
+	}
+}
+
+/*
+	关闭迭代器
+	释放迭代器占有的资源
+	暂不实现
+*/
+//func (si *SkipListIterator)Close() error {
+//
+//}
+
+/*
+	当前节点是否合法
+*/
+func (si *SkipListIterator) Valid() bool {
+	return si.n != nil
+}
+
+/*
+	获取当前节点的key
+*/
+func (si *SkipListIterator) Key() []byte {
+	return si.n.key(si.list.arena)
+}
+
+/*
+	当前节点的值
+*/
+func (si *SkipListIterator) Value() ValueStruct {
+	return si.list.arena.getValue(si.n.getValueOffset())
+}
+
+/*
+	当前节点的值（valsize+valoffset）
+*/
+func (si *SkipListIterator) ValueUint64() uint64 {
+	return atomic.LoadUint64(&si.n.value)
+	//return si.n.value
+}
+
+/*
+	当前n的后一个 大于的
+*/
+func (si *SkipListIterator) Next() {
+	si.n, _ = si.list.findNear(si.n.key(si.list.arena), false, false)
+}
+
+/*
+	当前n的前一个 小于的
+*/
+func (si *SkipListIterator) Prev() {
+	si.n, _ = si.list.findNear(si.n.key(si.list.arena), true, false)
+}
+
+/*
+	找目标值的后一个（大于等于）
+*/
+func (si *SkipListIterator) Seek(target []byte) {
+	si.n, _ = si.list.findNear(target, false, true)
+}
+
+/*
+	找目标值的前一个（小于等于）
+*/
+func (si *SkipListIterator) SeekForPrev(target []byte) {
+	si.n, _ = si.list.findNear(target, true, true)
+}
+
+/*
+	找跳表中的第一个节点(除开头结点的）
+*/
+func (si *SkipListIterator) SeekToFirst() {
+	si.n = si.list.getNext(si.list.getHead(), 0)
+}
+
+/*
+	找跳表中的最后一个节点
+*/
+func (si *SkipListIterator) SeekToLast() {
+	si.n = si.list.findLast()
+}
+
+/*
+	跳表的最后一个节点
+		最后一个节点的含义是？ 一直遍历跳表 直到最后吗？ 是否是第0层的最后一个？ 是
+		使用层级遍历 从最高层遍历（最高层的节点最少 向下遍历 则每层遍历的节点都不多，相较于从第0层的开头开始遍历 可能更快
+
+*/
+func (s *SkipList) findLast() *node {
+	// 空跳表
+	if s.getNext(s.getHead(), 0) == nil {
+		return nil
+	}
+	// 获取当前跳表层高
+	height := s.getHeight() - 1
+	curNode := s.getHead()
+	for {
+		next := s.getNext(curNode, height)
+		if next != nil {
+			curNode = next
+			continue
+		}
+		if height == 0 {
+			// 这里打印下getHead的值看看
+			if curNode == s.getHead() {
+				return nil
+			}
+			return curNode
+		}
+		height--
+	}
+}
+
+func (s *SkipList) Draw(align bool) {
+	// 逐行查找 从最高层开始 每层找不到 则向下
+	for i := s.level - 1; i >= 0; i-- {
+		preElementOffset := s.headOffset // 每一层从头开始
+		// 获取到node
+		preElement := s.arena.getNode(preElementOffset)
+
+		// 找 每层的 头 尾 中间与key比较
+		for cur := preElement.tower[i]; cur != 0; cur = preElement.tower[i] {
+			curNode := s.arena.getNode(cur)
+			key := s.arena.getKey(curNode.keyOffset, curNode.keySize)
+			valOffset, valSize := decodeValue(curNode.value)
+			value := s.arena.getValue(valOffset, valSize).Value
+			fmt.Printf("%s.%s ->", string(key), string(value))
+			preElement = curNode
+			continue
+		}
+		fmt.Println()
 	}
 }
