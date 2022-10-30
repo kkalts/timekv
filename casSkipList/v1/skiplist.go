@@ -94,7 +94,7 @@ func (n *node) getNextOffset(h int) uint32 {
 	return n.tower[h]
 }
 
-// 原子操作 更新节点在h层的next指针(用于每层增加/删除节点） ???
+// 原子操作 更新节点在h层的next指针(用于每层增加/删除节点）
 func (n *node) casNextOffset(h int, oldNode, newNode uint32) bool {
 	return atomic.CompareAndSwapUint32(&n.tower[h], oldNode, newNode)
 }
@@ -365,13 +365,14 @@ func (s *SkipList) Add(e *Entry) {
 					// 获取到node
 					headerNode := sl.arena.getNode(headerOffset)
 					prevElementHeaders[sl.level] = headerNode
-					这部分
+
 				*/
 				//fmt.Println(i)
-				// rand出相同层次 且都大于1 会有问题
+
 				AssertTrue(i > 1) // This cannot happen in base level. 总会有一层
 				// We haven't computed prev, next for this level because height exceeds old listHeight.
 				// For these levels, we expect the lists to be sparse, so we can just search from head.
+				// 如果是补层，则可以从头节点开始，则一般返回的pre是headoffset next是空
 				prevList[i], nextList[i] = s.findSpliceForLevel(key, s.headOffset, i)
 				// Someone adds the exact same key before we are able to do so. This can only happen on
 				// the base level. But we know we are not on the base level.
@@ -388,13 +389,21 @@ func (s *SkipList) Add(e *Entry) {
 				break
 			}
 			// 如果能够在上面break 最好 如果不能 则可能有并发了 需要再次获取key的插入位置
+			// 疑问：如果这里一直有并发请求 那么会怎么样？一直更新 看并发是相同key还是不同Key的 相同key就== 不同Key就循环 直到cas成功跳出
+			// 但是这也可能在cas的过程中 不同Key->相同key / 相同key -> 不同key 都有可能
 
 			prevList[i], nextList[i] = s.findSpliceForLevel(key, prevList[i], i)
+			// 相同key并发
 			if prevList[i] == nextList[i] {
 				// 之前检查过是不等的 这里相等了 说明已经有节点插入了 并发了 则更新
-				// 这里检查是？？？
+				//
 				// 两个A,B协程对于相同key并成冲突写 都是从第0层开始插入 第一个A来的时候不会到这步 后面B来的时候 走到这边 将值更新为B后返回，
-				// A协程还在继续插入 随机层高也是A的 但值是B的
+				// A协程还在继续插入 随机层高也是A的 但值是B的 使用的指针 让key指向的值变了
+				// 最终还是会把新key插入 有写覆盖 脏数据？
+				// 只有在base level 即第一层会发生并发？ 因为整个插入操作是从0开始
+				// 第一层是基础层 ，如果是发现相同key并发必然是在第一层，不管A协程插入到第几层，但对于B来说 如果CAS失败 且有相同key并发，那么一定是A第一层就已经插入成功了
+				// 不然B之前不会CAS失败
+
 				AssertTruef(i == 0, "Equality can happen only on base level: %d", i)
 				// 放入arena（在arena上新放入）
 				valueOffset := s.arena.putValue(v)
@@ -403,15 +412,16 @@ func (s *SkipList) Add(e *Entry) {
 				// 编码后的Value放入node中（只是让key指向新value)
 				prevNode := s.arena.getNode(prevList[i])
 				prevNode.setValue(encValue)
-				// 更新后跳出
+				// 更新后跳出 即就算上面CAS没成功 这里如果更新完了 B也会退出 走到这里说明其实A已经经过了cas 成功插入了
+				// 对于B来说是没成功CAS的
 				return
 			}
+			// 不同key并发
 			// 同时这里 上面CAS 比较  prevNode.tower[i] != next[i] 到这里 重新计算key应该插入的位置
 			// 如果是两个协程1，2 处理不同的key 并发插入 ，1插入后，2的不相等了 要重新找key应该插入的位置
 			// 这里就是 重新计算后 没有相同key的情况 不用更新 重新找到新的要插入的地方 继续插入---不同key的并发插入问题
 		}
 	}
-
 }
 
 /*

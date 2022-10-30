@@ -64,8 +64,6 @@ func TestSkipListBasicCRUD(t *testing.T) {
 	//Update a entry
 	entry2_new := NewEntry(entry1.Key, []byte("Val1+1"))
 	list.Add(entry2_new)
-	fmt.Println(entry2_new.Value)
-	fmt.Println(list.Get(entry2_new.Key).Value)
 	assert.Equal(t, entry2_new.Value, list.Get(entry2_new.Key).Value)
 }
 
@@ -126,6 +124,7 @@ func TestConcurrentBasic(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+	l.Draw(true)
 }
 
 func Benchmark_ConcurrentBasic(b *testing.B) {
@@ -156,16 +155,30 @@ func Benchmark_ConcurrentBasic(b *testing.B) {
 	}
 	wg.Wait()
 }
+func TestSkipListIterator2(t *testing.T) {
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			TestSkipListIterator(t)
+		}(i)
+	}
+	wg.Wait()
+	//for i := 0; i <100 ; i++ {
+	//	TestSkipListIterator(t)
+	//}
 
+}
 func TestSkipListIterator(t *testing.T) {
 	list := NewSkipList(100000)
 
 	//Put & Get
-	entry1 := NewEntry([]byte(RandString(10)), []byte(RandString(10)))
+	entry1 := NewEntry([]byte(RandString(10)), []byte(RandString(17)))
 	list.Add(entry1)
 	assert.Equal(t, entry1.Value, list.Get(entry1.Key).Value)
 
-	entry2 := NewEntry([]byte(RandString(10)), []byte(RandString(10)))
+	entry2 := NewEntry([]byte(RandString(10)), []byte(RandString(18)))
 	list.Add(entry2)
 	assert.Equal(t, entry2.Value, list.Get(entry2.Key).Value)
 
@@ -174,8 +187,10 @@ func TestSkipListIterator(t *testing.T) {
 	list.Add(entry2_new)
 	assert.Equal(t, entry2_new.Value, list.Get(entry2_new.Key).Value)
 
+	list.Draw(true)
 	iter := list.NewSkipListIterator()
 	for iter.Rewind(); iter.Valid(); iter.Next() {
-		fmt.Printf("iter key %s, value %s", iter.Item().Key, iter.Item().Value)
+		fmt.Printf("iter key %s, value %s\n", iter.Item().Key, iter.Item().Value)
 	}
+	fmt.Println("-----------------------------------------")
 }
