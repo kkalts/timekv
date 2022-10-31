@@ -89,6 +89,18 @@ func (b *BloomFilter) Allow(hashed uint32) bool {
 	return b.Insert(hashed)
 }
 
+/*
+	重置布隆过滤器
+*/
+func (b *BloomFilter) reset() {
+	if b == nil {
+		return
+	}
+	for i := 0; i < len(b.bitMap); i++ {
+		b.bitMap[i] = 0
+	}
+}
+
 // 求 在n（数据量）和p（假阳性率）确定的情况下 求m m/n 最终求出k
 // m即数组大小
 func BitsPerKey(n int, p float64) int {

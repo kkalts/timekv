@@ -2,7 +2,9 @@ package v1
 
 import (
 	"container/list"
+	"github.com/cespare/xxhash/v2"
 	"sync"
+	"unsafe"
 )
 
 /*
@@ -83,26 +85,134 @@ func (c *Cache) Get(key interface{}) (interface{}, bool) {
 }
 
 // 布隆过滤器重置 + slru保鲜
+// 返回 获取到的值 及 是否获取到key对应的值
 func (c *Cache) get(key interface{}) (interface{}, bool) {
 	c.t++
 	if c.t == c.threshold {
 		// 重置布隆过滤器和执行保鲜
 		// 这里重置过滤器可以使用 AB 过滤器 防止在重置时出错
 		c.cmSketch.Reset()
+		c.bloomFilter.reset()
 		c.t = 0
 	}
-	// 从lru中获取  增加访问频次
 
-	// 没有 看布隆过滤器中有没有
-	// 没有 则就是没有
+	// 直接从map中获取
+	keyHash, conflictHash := c.keyToHash(key)
+	// 放入布隆过滤器
+	c.bloomFilter.Allow(uint32(keyHash))
+	// 增加访问频次 表明key被访问过 即使没有
+	c.cmSketch.Increment(keyHash)
 
+	item, ok := c.data[keyHash]
+	if !ok {
+		// 没拿到
+
+		return nil, false
+	}
 	// 有
+	sItem := item.Value.(*storeItem)
 
-	// 从slru中获取  增加访问频次
+	// 判断是否冲突 防止不同key但keyHash相同，hash冲突，如果不同 则冲突了
+	if sItem.conflict != conflictHash {
+		// 冲突
+		return nil, false
+	}
 
-	// 没有 则 没有
+	// 判断数据所在阶段 将其在其lru中移到头部
+	if sItem.stage == 0 {
+		// 在lru中
+		c.lru.get(item)
+	} else {
+		// 在slru
+		c.slru.get(item)
+	}
+
+	return sItem.value, true
 }
 
+/*
+	返回删除的值的冲突值 及 是否删除成功
+*/
+func (c *Cache) Del(key interface{}) (interface{}, bool) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	return c.del(key)
+}
+
+func (c *Cache) del(key interface{}) (interface{}, bool) {
+	keyHash, conflictHash := c.keyToHash(key)
+	// 判断key是否存在
+	item, ok := c.data[keyHash]
+	if !ok {
+		// 没拿到
+		return 0, false
+	}
+
+	// 存在
+	sItem := item.Value.(*storeItem)
+
+	// 判断是否冲突 哈希冲突
+	// 防止keyHash冲突
+	if conflictHash != 0 && (sItem.conflict != conflictHash) {
+		// 冲突
+		return 0, false
+	}
+
+	// 删除map中的key
+	delete(c.data, keyHash)
+	return sItem.conflict, true
+	// 这里为什么不删除lru中的？ 如果依靠淘汰的方式 要很久才能淘汰出去
+	// 不删除是为了 如果是高频的key 如果再次访问/add 可以继承之前的访问频次？
+}
+
+/*
+	对各种类型的key使用两种不同的哈希函数做哈希计算
+	返回值：
+		return1: 用作对key的哈希后值
+		return2:用作key的冲突值，防止return1哈希冲突的辅助值 解决哈希冲突
+*/
 func (c *Cache) keyToHash(key interface{}) (uint64, uint64) {
-
+	if key == nil {
+		return 0, 0
+	}
+	switch k := key.(type) {
+	case uint64:
+		return k, 0
+	case string:
+		return MemHashString(k), xxhash.Sum64String(k)
+	case []byte:
+		return MemHash(k), xxhash.Sum64(k)
+	case byte:
+		return uint64(k), 0
+	case int:
+		return uint64(k), 0
+	case int32:
+		return uint64(k), 0
+	case uint32:
+		return uint64(k), 0
+	case int64:
+		return uint64(k), 0
+	default:
+		panic("Key type not supported")
+	}
 }
+
+type stringStruct struct {
+	str unsafe.Pointer
+	len int
+}
+
+//go:linkname memhash runtime.memhash
+func memhash(p unsafe.Pointer, h, s uintptr) uintptr
+
+func MemHashString(str string) uint64 {
+	ss := (*stringStruct)(unsafe.Pointer(&str))
+	return uint64(memhash(ss.str, 0, uintptr(ss.len)))
+}
+
+func MemHash(data []byte) uint64 {
+	ss := (*stringStruct)(unsafe.Pointer(&data))
+	return uint64(memhash(ss.str, 0, uintptr(ss.len)))
+}
+
+// 缺少更新操作
