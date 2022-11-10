@@ -11,14 +11,13 @@ import "github.com/hardcore-os/corekv/sstable/v1/utils"
 
 */
 type tableBuilder struct {
-	opt  *Options
+	opt        *Options
 	blockList  []*Block
 	curBlock   *Block
 	maxVersion uint64
 	keyHashes  []uint32
-	keyCount   uint32  // 整个builder 整个sst的key数量
+	keyCount   uint32 // 整个builder 整个sst的key数量
 }
-
 
 type Block struct {
 	data         []byte   // 当前block所有相关数据 （kv_data、offsets、offsets_len、checksum、checksum_len)
@@ -40,19 +39,17 @@ type BuildData struct {
 
 /*
 	序列化builder（内存数据） 序列化为sst文件 存储到硬盘
- */
+*/
 func (tb *tableBuilder) flush() {
 	// 序列化当前block
 	tb.finishCurBlock()
 
 	// 构建布隆过滤器
 
-
 	// 构建索引
 
-
 	// 计算索引的校验和
-	 ，
+
 }
 
 /*
@@ -74,7 +71,7 @@ func (tb *tableBuilder) add(e *utils.Entry) {
 		// 开辟新的block
 		tb.curBlock = &Block{
 			// 根据参数 创建预估block的大小的字节数组
-			data: make([]byte,tb.opt.EveryBlockSize),
+			data: make([]byte, tb.opt.EveryBlockSize),
 		}
 	}
 
@@ -113,7 +110,7 @@ func (b *Block) calDiffKey(key []byte) []byte {
 
 /*
 	序列化当前block
- */
+*/
 func (tb *tableBuilder) finishCurBlock() {
 	// 是 计算当前block的各项信息 序列化(指将各种数据转为[]byte 放入data)当前block（放入block list)
 	entryOBytes := U32SliceToBytes(tb.curBlock.entryOffsets)
@@ -127,7 +124,7 @@ func (tb *tableBuilder) finishCurBlock() {
 	tb.append(checkSum)
 	tb.append(U32ToBytes(uint32(len(checkSum))))
 	tb.blockList = append(tb.blockList, tb.curBlock)
-	tb.keyCount+=uint32(len(tb.curBlock.entryOffsets))
+	tb.keyCount += uint32(len(tb.curBlock.entryOffsets))
 	tb.curBlock = nil
 
 	return
@@ -136,14 +133,13 @@ func (tb *tableBuilder) finishCurBlock() {
 func keyHash(key []byte) uint32 {
 
 }
-func U32SliceToBytes(data [] uint32)[]byte{
+func U32SliceToBytes(data []uint32) []byte {
 
 }
 
-func U32ToBytes(data uint32)[]byte{
+func U32ToBytes(data uint32) []byte {
 
 }
-
 
 /*
 	将数据放入tb的curBlock的data中
@@ -167,9 +163,6 @@ func (tb *tableBuilder) allocate(need int) []byte {
 
 }
 
-
 func (tb *tableBuilder) calCheckSum(data []byte) []byte {
 
 }
-
-
