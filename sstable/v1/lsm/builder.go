@@ -1,6 +1,11 @@
 package lsm
 
-import "github.com/hardcore-os/corekv/sstable/v1/utils"
+import (
+	"github.com/golang/protobuf/proto"
+	"github.com/hardcore-os/corekv/sstable/v1/file"
+	"github.com/hardcore-os/corekv/sstable/v1/pb"
+	"github.com/hardcore-os/corekv/sstable/v1/utils"
+)
 
 /*
 	将跳表数据/其他SST文件数据 序列化
@@ -35,6 +40,7 @@ type Header struct {
 }
 type BuildData struct {
 	blockList []*Block
+	index     []byte
 }
 
 /*
@@ -44,12 +50,63 @@ func (tb *tableBuilder) flush() {
 	// 序列化当前block
 	tb.finishCurBlock()
 
-	// 构建布隆过滤器
+	// 构建布隆过滤器 将当前builder的所有kv数据都放入布隆过滤器中
+	filter := utils.NewBloomFilter(len(tb.keyHashes), tb.opt.BloomFalsePositive)
+	for i := 0; i < len(tb.keyHashes); i++ {
+		filter.Allow(tb.keyHashes[i])
+	}
+	// 构建索引 index有index_data index_len index的校验和
+	// 遍历blocl list
 
-	// 构建索引
+	tableIndex := &pb.TableIndex{}
+	tableIndex.KeyCount = tb.keyCount
+	tableIndex.MaxVersion = tb.maxVersion
+
+	// index的block_offsets
+	var startBlockOffset uint32
+	var offsets = make([]*pb.BlockOffset, 0)
+	for i := 0; i < len(tb.blockList); i++ {
+		offset := &pb.BlockOffset{}
+		// 每个block的base key offset len
+		block := tb.blockList[i]
+		offset.Key = block.baseKey
+		offset.Len = uint32(block.end)
+		offset.Offset = startBlockOffset
+		offsets = append(offsets, offset)
+		startBlockOffset += uint32(block.end)
+	}
+	tableIndex.Offsets = offsets
+	tableIndex.BloomFilter = filter.FilterBitMap()
+
+	// 序列化整个index
+	index, err := proto.Marshal(tableIndex)
+	if err != nil {
+
+	}
+	indexLen := len(index)
 
 	// 计算索引的校验和
+	indexCheckSum := tb.calCheckSum(index)
+	indexCheckSumLen := len(indexCheckSum)
+	// 计算sst文件的整体大小
 
+	// 将以上数据都放入一个大[]byte （data index)
+	var buf = make([]byte, 0)
+
+	// data拷贝到buf
+
+	// index相关拷贝到buf
+
+	// 创建sstable对象
+	ssTable := file.OpenSSTable()
+
+	// 调用sstable方法 将数据放入sstable mmap中data中（通过分配内存 然后拷贝的方式）  刷盘
+	// buf拷贝到mmap.Data
+	dst, err := ssTable.Bytes(0)
+	copy(dst, buf)
+}
+
+type Index struct {
 }
 
 /*
@@ -66,6 +123,7 @@ func (tb *tableBuilder) add(e *utils.Entry) {
 		Version:  e.Version,
 	}
 	// 当前block大小是否到达限制
+	// 需要改变判断是否达到限制的条件
 	if len(tb.curBlock.data) >= BlockMaxSize {
 		tb.finishCurBlock()
 		// 开辟新的block

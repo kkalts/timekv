@@ -65,3 +65,6 @@ func (sst *SSTable) Init() error {
 func (sst *SSTable) Index() *pb.TableIndex {
 	return sst.idxTables
 }
+func (sst *SSTable) Bytes(offset, size int) ([]byte, error) {
+	return sst.f.Bytes(offset, size)
+}

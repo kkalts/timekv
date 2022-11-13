@@ -9,9 +9,6 @@ type Table struct {
 	fid uint64 // sstable的编号 （每个sstable都有自己的编号）
 }
 
-type Index struct {
-}
-
 /*
 	创建一个table
 */
@@ -30,6 +27,7 @@ func openTable(opt Options, tableName string, builder *tableBuilder) *Table {
 	}
 }
 
+// 在openTable后的sst经过初始化 有了sst文件的index等数据 即可用于检索
 func (t *Table) Search() {
 
 }
