@@ -14,6 +14,14 @@ func NewBloomFilter(numEntries int, falsePositive float64) *BloomFilter {
 	return initFilter(bitPerKey, numEntries)
 }
 
+func NewBloomFilterForTable(filterMap Filter) *BloomFilter {
+	kNum := filterMap[len(filterMap)-1]
+	if kNum > 30 {
+		kNum = 30
+	}
+	return &BloomFilter{bitMap: filterMap, k: kNum}
+}
+
 /*
 	可能包含key 如果包含返回true
 */

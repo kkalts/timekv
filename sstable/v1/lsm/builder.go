@@ -224,3 +224,15 @@ func (tb *tableBuilder) allocate(need int) []byte {
 func (tb *tableBuilder) calCheckSum(data []byte) []byte {
 
 }
+
+/*
+	block迭代器
+*/
+type blockIterator struct {
+}
+
+func (ti *blockIterator) Valid() bool      {}
+func (ti *blockIterator) Rewind()          {}
+func (ti *blockIterator) Item() utils.Item {}
+func (ti *blockIterator) Close() error     {}
+func (ti *blockIterator) Seek(key []byte)  {}
