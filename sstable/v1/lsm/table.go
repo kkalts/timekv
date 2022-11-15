@@ -96,28 +96,65 @@ func (ti *TableIterator) Seek(key []byte) {
 	// 直接使用golang的二分
 	idx := sort.Search(len(blockOffsets), func(i int) bool {
 		if i == len(blockOffsets) {
-			// 当i==len(blockOffsets) 在最后一个？还是找不到
+			// 当i==len(blockOffsets) 在最后一个？还是找不到 key可能在最后一个block中
 			return true
 		}
 		// GetKey > key 为什么不直接>=0 ?
+		// 等于 退出条件是 key <= basekey
 		return utils.CompareKeys(blockOffsets[i].GetKey(), key) > 0
 	})
-	// 找到 GetKey > key  的第一个（最左值应该）
+	// 找到 basekey > key  的第一个（最左值应该）
 	if idx == 0 {
 		// key必在第一个block 因为最左值 可以直接去对应的block中使用迭代器继续查找
 		// 且 block的basekey<=key
 		ti.SeekForBlock(idx, key)
 	}
-	// 否则 block[idx].basekey >= key 则需要找idx-1的block
-	// 这个block[idx-1].basekey <=key 在idx-1的block中找
-	// 在idx-1中没有 则key可能在idx中 为什么？？？？？
+	// 否则 block[idx].basekey > key 则需要找idx-1的block
+	// 这个block[idx-1].basekey < key 在idx-1的block中找
+	// 在idx-1中没有 则key可能在idx中 key在最后一个block中 则需要在idx中找
+	//
 	ti.SeekForBlock(idx-1, key)
 
 }
 
 /*
-	在block中找
+	在block中找key
 */
 func (ti *TableIterator) SeekForBlock(idx int, key []byte) {
+	// 明确block
+	ti.blockPos = idx
+	// 在block cache中找block 这里暂时忽略
+
+	blockOffset := ti.t.sst.Index().Offsets[idx]
+	var block = &Block{}
+	// 通过blockOffset从sst文件中获取到具体的block
+	blockData, err := ti.t.read(int(blockOffset.Offset), int(blockOffset.Len))
+	block.data = blockData
+	checkSumLen, err := ti.t.read(len(blockData)-4, 4)
+	block.checkSumLen = uint16(BytesToU32(checkSumLen))
+
+	checkSum, err := ti.t.read(len(blockData)-4-int(BytesToU32(checkSumLen)), int(BytesToU32(checkSumLen)))
+	block.checkSum = checkSum
+	block.end = len(blockData)
+	offsetsLen, err := ti.t.read(len(blockData)-4-int(BytesToU32(checkSumLen))-4, 4)
+	block.offsetLen = uint16(BytesToU32(offsetsLen))
+	entryOffsets, err := ti.t.read(len(blockData)-4-int(BytesToU32(checkSumLen))-4-int(block.offsetLen), int(block.offsetLen))
+
+	block.entryOffsets = BytesToU32Slice(entryOffsets)
+	block.kvDataStartPos = len(blockData) - 4 - int(BytesToU32(checkSumLen)) - 4 - int(block.offsetLen)
+	//firstEntryOffset:=block.entryOffsets[0]
+	// 每个entry的长度是四字节存储？
+	// 对block做二分查找 使用block迭代器
+	ti.bi.Seek(key)
+
+}
+func (t *Table) read(off, sz int) ([]byte, error) {
+	return t.sst.Bytes(off, sz)
+}
+func BytesToU32(data []byte) uint32 {
+
+}
+
+func BytesToU32Slice(data []byte) []uint32 {
 
 }

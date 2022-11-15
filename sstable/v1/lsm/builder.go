@@ -5,6 +5,8 @@ import (
 	"github.com/hardcore-os/corekv/sstable/v1/file"
 	"github.com/hardcore-os/corekv/sstable/v1/pb"
 	"github.com/hardcore-os/corekv/sstable/v1/utils"
+	"sort"
+	"unsafe"
 )
 
 /*
@@ -25,14 +27,15 @@ type tableBuilder struct {
 }
 
 type Block struct {
-	data         []byte   // 当前block所有相关数据 （kv_data、offsets、offsets_len、checksum、checksum_len)
-	entryOffsets []uint32 // 每个kv数据在data中的offset
-	offsetLen    uint16   // offsets数组的长度
-	checkSum     []byte   // 对data entryOffsets offsetLen 计算一个校验和
-	checkSumLen  uint16   // 校验和的长度
-	offset       uint16   // 当前block的offset
-	baseKey      []byte   // 当前block的第一个key
-	end          int      // 当前block的data的结束位置（data的大小？
+	data           []byte   // 当前block所有相关数据 （kv_data、offsets、offsets_len、checksum、checksum_len)
+	entryOffsets   []uint32 // 每个kv数据在data中的offset
+	offsetLen      uint16   // offsets数组的长度
+	checkSum       []byte   // 对data entryOffsets offsetLen 计算一个校验和
+	checkSumLen    uint16   // 校验和的长度
+	offset         uint16   // 当前block的offset
+	baseKey        []byte   // 当前block的第一个key
+	end            int      // 当前block的data的结束位置（data的大小？
+	kvDataStartPos int
 }
 type Header struct {
 	overlap uint16 // 与base key相同的部分的长度（base key是当前block的第一个key)
@@ -140,8 +143,15 @@ func (tb *tableBuilder) add(e *utils.Entry) {
 	if e.Version > tb.maxVersion {
 		tb.maxVersion = e.Version
 	}
+	// 如果是当前block的第一个项 则diffkey为basekey
 	// 计算diffkey
-	diffKey := tb.curBlock.calDiffKey(key)
+	var diffKey []byte
+	if len(tb.curBlock.baseKey) == 0 {
+		tb.curBlock.baseKey = append(tb.curBlock.baseKey[:0], key...)
+		diffKey = key
+	} else {
+		diffKey = tb.curBlock.calDiffKey(key)
+	}
 
 	// 计算header
 	h := Header{
@@ -172,6 +182,7 @@ func (b *Block) calDiffKey(key []byte) []byte {
 func (tb *tableBuilder) finishCurBlock() {
 	// 是 计算当前block的各项信息 序列化(指将各种数据转为[]byte 放入data)当前block（放入block list)
 	entryOBytes := U32SliceToBytes(tb.curBlock.entryOffsets)
+
 	entryOffsetsLen := len(tb.curBlock.entryOffsets)
 	entryOLenBytes := U32ToBytes(uint32(entryOffsetsLen))
 	// 计算校验和
@@ -229,10 +240,84 @@ func (tb *tableBuilder) calCheckSum(data []byte) []byte {
 	block迭代器
 */
 type blockIterator struct {
+	data         []byte // 纯entry数据
+	idx          int
+	err          error
+	baseKey      []byte
+	key          []byte
+	val          []byte
+	entryOffsets []uint32
+	block        *Block
+
+	it *utils.Item
 }
 
-func (ti *blockIterator) Valid() bool      {}
-func (ti *blockIterator) Rewind()          {}
-func (ti *blockIterator) Item() utils.Item {}
-func (ti *blockIterator) Close() error     {}
-func (ti *blockIterator) Seek(key []byte)  {}
+func (bi *blockIterator) Valid() bool      {}
+func (bi *blockIterator) Rewind()          {}
+func (bi *blockIterator) Item() utils.Item {}
+func (bi *blockIterator) Close() error     {}
+func (bi *blockIterator) Seek(key []byte) {
+	startIndex := 0 // This tells from which index we should start binary search.
+
+	// 二分查找
+	foundEntryIdx := sort.Search(len(bi.entryOffsets), func(idx int) bool {
+		// If idx is less than start index then just return false.
+		if idx < startIndex {
+			return false
+		}
+		bi.setIdx(idx)
+		// 当前项的key >=key
+		return utils.CompareKeys(bi.key, key) >= 0
+	})
+	bi.setIdx(foundEntryIdx)
+}
+
+// 让当前的迭代器持有当前block当前迭代到的kv数据
+func (bi *blockIterator) setIdx(idx int) {
+	bi.idx = idx
+	// 当前kv项的开始
+	startOffset := int(bi.entryOffsets[idx])
+
+	// 设置basekey
+	if len(bi.baseKey) == 0 {
+		var header Header
+		// 解析data中header数据到header结构体
+		header.decode(bi.data)
+		// basekey是第一项的diffkey
+		bi.baseKey = bi.data[headerSize : headerSize+header.diff] // header.diff == 0
+	}
+	// 找到idx对应的kvdata
+	var entryEndOffset int // 当前idx的entry的endoffset  如何计算？？？
+
+	entryData := bi.data[startOffset:entryEndOffset]
+	// 解析entry
+	var header Header
+	// 解析data中header数据到header结构体
+	header.decode(entryData)
+	// 图中的expired_at 暂时忽略了？
+	valueOffset := header.diff + headerSize
+	diffKey := entryData[headerSize:valueOffset]
+	bi.key = bi.baseKey + diffKey
+	val := &utils.ValueStruct{}
+	val.DecodeValue(entryData[valueOffset:])
+	bi.val = val.Value
+	e := &utils.Entry{Key: bi.key}
+	e.Key = bi.key
+	e.Value = val.Value
+	e.ExpireAt = val.ExpireAt
+	e.Meta = val.Meta
+	bi.it = &utils.Item{E: e}
+
+}
+func (bi *blockIterator) setBlock(b *Block) {
+	bi.entryOffsets = b.entryOffsets
+	bi.data = b.data[:b.kvDataStartPos]
+
+}
+
+const headerSize = uint16(unsafe.Sizeof(Header{}))
+
+// Decode decodes the header.
+func (h *Header) decode(buf []byte) {
+	copy(((*[headerSize]byte)(unsafe.Pointer(h))[:]), buf[:headerSize])
+}
