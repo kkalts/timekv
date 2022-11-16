@@ -138,12 +138,12 @@ func (ti *TableIterator) SeekForBlock(idx int, key []byte) {
 	block.end = len(blockData)
 	offsetsLen, err := ti.t.read(len(blockData)-4-int(BytesToU32(checkSumLen))-4, 4)
 	block.offsetLen = uint16(BytesToU32(offsetsLen))
-	entryOffsets, err := ti.t.read(len(blockData)-4-int(BytesToU32(checkSumLen))-4-int(block.offsetLen), int(block.offsetLen))
+	entryOffsets, err := ti.t.read(len(blockData)-4-int(BytesToU32(checkSumLen))-4-int(block.offsetLen)*4, int(block.offsetLen)*4)
 
 	block.entryOffsets = BytesToU32Slice(entryOffsets)
 	block.kvDataStartPos = len(blockData) - 4 - int(BytesToU32(checkSumLen)) - 4 - int(block.offsetLen)
 	//firstEntryOffset:=block.entryOffsets[0]
-	// 每个entry的长度是四字节存储？
+	// 每个entry的长度是四字节存储 entryoffsets数组 是uint32的数组 即4个字节
 	// 对block做二分查找 使用block迭代器
 	ti.bi.Seek(key)
 

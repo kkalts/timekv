@@ -1,10 +1,12 @@
 package lsm
 
 import (
+	"encoding/binary"
 	"github.com/golang/protobuf/proto"
 	"github.com/hardcore-os/corekv/sstable/v1/file"
 	"github.com/hardcore-os/corekv/sstable/v1/pb"
 	"github.com/hardcore-os/corekv/sstable/v1/utils"
+	"reflect"
 	"sort"
 	"unsafe"
 )
@@ -27,9 +29,10 @@ type tableBuilder struct {
 }
 
 type Block struct {
+	estimateSz     int64    // 当前block预估数据大小
 	data           []byte   // 当前block所有相关数据 （kv_data、offsets、offsets_len、checksum、checksum_len)
 	entryOffsets   []uint32 // 每个kv数据在data中的offset
-	offsetLen      uint16   // offsets数组的长度
+	offsetLen      uint16   // offsets数组的长度 2字节
 	checkSum       []byte   // 对data entryOffsets offsetLen 计算一个校验和
 	checkSumLen    uint16   // 校验和的长度
 	offset         uint16   // 当前block的offset
@@ -117,17 +120,25 @@ type Index struct {
 */
 const BlockMaxSize = 0
 
+func (tb *tableBuilder) tryFinishBlock(e *utils.Entry) bool {
+	entryOffsetsDataLen := (len(tb.curBlock.entryOffsets)+1)*4 + 8 + 4
+
+	tb.curBlock.estimateSz = int64(tb.curBlock.end) + int64(6) + int64(entryOffsetsDataLen) + int64(len(e.Key)) +
+		int64(e.EncodedSize())
+
+	return tb.curBlock.estimateSz > BlockMaxSize
+}
 func (tb *tableBuilder) add(e *utils.Entry) {
 	key := e.Key
 	val := utils.ValueStruct{
-		Meta:     e.Meta,
+		//Meta:     e.Meta,
 		Value:    e.Value,
 		ExpireAt: e.ExpireAt,
-		Version:  e.Version,
+		//Version:  e.Version,
 	}
 	// 当前block大小是否到达限制
 	// 需要改变判断是否达到限制的条件
-	if len(tb.curBlock.data) >= BlockMaxSize {
+	if tb.tryFinishBlock(e) {
 		tb.finishCurBlock()
 		// 开辟新的block
 		tb.curBlock = &Block{
@@ -163,13 +174,14 @@ func (tb *tableBuilder) add(e *utils.Entry) {
 	// 这里end还没改变 则 这里是当kv数据在当前data中的开始offset 放入数组中(在这里是这样 后续end会是data的end位置)
 	tb.curBlock.entryOffsets = append(tb.curBlock.entryOffsets, uint32(tb.curBlock.end))
 
-	// 将header diffkey（）放入当前block的kv_data字节数组
-	tb.append(h)
+	// 将header diffkey（）放入当前block的data字节数组
+	tb.append(h.encode())
 	tb.append(diffKey)
 	// 将val转为[]byte 放入data中
-
-	// 更新offsets offset_len
-	tb.allocate(val)
+	// 计算val需要分配的字节数并进行分配
+	dst := tb.allocate(int(val.EncodedSize()))
+	// 编码val后放到data中
+	val.EncodeValue(dst)
 
 }
 func (b *Block) calDiffKey(key []byte) []byte {
@@ -180,12 +192,16 @@ func (b *Block) calDiffKey(key []byte) []byte {
 	序列化当前block
 */
 func (tb *tableBuilder) finishCurBlock() {
+	if tb.curBlock == nil || len(tb.curBlock.entryOffsets) == 0 {
+		return
+	}
 	// 是 计算当前block的各项信息 序列化(指将各种数据转为[]byte 放入data)当前block（放入block list)
 	entryOBytes := U32SliceToBytes(tb.curBlock.entryOffsets)
 
 	entryOffsetsLen := len(tb.curBlock.entryOffsets)
+	// 按照4字节存
 	entryOLenBytes := U32ToBytes(uint32(entryOffsetsLen))
-	// 计算校验和
+	// 计算校验和 checkSum是8字节 uint64的 -> []byte
 	checkSum := tb.calCheckSum(tb.curBlock.data)
 
 	tb.append(entryOBytes)
@@ -202,19 +218,40 @@ func (tb *tableBuilder) finishCurBlock() {
 func keyHash(key []byte) uint32 {
 
 }
-func U32SliceToBytes(data []uint32) []byte {
 
+/*
+	uint32切片转字节切片
+*/
+func U32SliceToBytes(data []uint32) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+	var b []byte
+	// 通过反射 将引用变成指针
+	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
+	hdr.Len = len(data) * 4
+	hdr.Cap = hdr.Len
+	// data切片就是第一个元素的地址
+	hdr.Data = uintptr(unsafe.Pointer(&data[0]))
+	return b
 }
 
-func U32ToBytes(data uint32) []byte {
-
+/*
+	u32转字节切片
+*/
+func U32ToBytes(v uint32) []byte {
+	var uBuf [4]byte
+	binary.BigEndian.PutUint32(uBuf[:], v)
+	return uBuf[:]
 }
 
 /*
 	将数据放入tb的curBlock的data中
 */
-func (tb *tableBuilder) append(data []byte) []byte {
-
+func (tb *tableBuilder) append(data []byte) {
+	dstBuf := tb.allocate(len(data))
+	// data拷贝到dstBuf
+	copy(dstBuf, data)
 }
 
 /*
@@ -229,7 +266,24 @@ func (tb *tableBuilder) append(data []byte) []byte {
 	https://blog.csdn.net/weixin_44387482/article/details/119763558
 */
 func (tb *tableBuilder) allocate(need int) []byte {
-
+	curBlock := tb.curBlock
+	// 判断当前data还剩的size 是否需要扩容
+	if len(curBlock.data[curBlock.end:]) < need {
+		// 需要扩容
+		newSize := 2 * len(curBlock.data)
+		if curBlock.end+need > newSize {
+			// 扩容的还不够
+			newSize = curBlock.end + need
+		}
+		// 扩容
+		tmp := make([]byte, newSize)
+		// curBlock.data -> tmp
+		copy(tmp, curBlock.data)
+		curBlock.data = tmp
+	}
+	// 不需要
+	curBlock.end += need
+	return curBlock.data[curBlock.end-need : curBlock.end]
 }
 
 func (tb *tableBuilder) calCheckSum(data []byte) []byte {
@@ -288,7 +342,13 @@ func (bi *blockIterator) setIdx(idx int) {
 	}
 	// 找到idx对应的kvdata
 	var entryEndOffset int // 当前idx的entry的endoffset  如何计算？？？
-
+	// 如果是最后一个entry 则entryEndOffset为data长度
+	if bi.idx+1 == len(bi.entryOffsets) {
+		entryEndOffset = len(bi.data)
+	} else {
+		entryEndOffset = int(bi.entryOffsets[bi.idx+1])
+	}
+	// 其他 entryEndOffset是下一个entry的开始
 	entryData := bi.data[startOffset:entryEndOffset]
 	// 解析entry
 	var header Header
@@ -320,4 +380,13 @@ const headerSize = uint16(unsafe.Sizeof(Header{}))
 // Decode decodes the header.
 func (h *Header) decode(buf []byte) {
 	copy(((*[headerSize]byte)(unsafe.Pointer(h))[:]), buf[:headerSize])
+}
+
+/*
+	编码
+*/
+func (h Header) encode() []byte {
+	var b [4]byte // 这里声明4个字节 计算时预估的header长度是6字节（内存对齐？）
+	*(*Header)(unsafe.Pointer(&b[0])) = h
+	return b[:]
 }
