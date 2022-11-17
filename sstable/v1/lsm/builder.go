@@ -2,10 +2,12 @@ package lsm
 
 import (
 	"encoding/binary"
+	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/hardcore-os/corekv/sstable/v1/file"
 	"github.com/hardcore-os/corekv/sstable/v1/pb"
 	"github.com/hardcore-os/corekv/sstable/v1/utils"
+	"hash/crc32"
 	"reflect"
 	"sort"
 	"unsafe"
@@ -229,9 +231,11 @@ func U32SliceToBytes(data []uint32) []byte {
 	var b []byte
 	// 通过反射 将引用变成指针
 	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
-	hdr.Len = len(data) * 4
+
+	hdr.Len = len(data) * 4 // uint32是四字节
 	hdr.Cap = hdr.Len
 	// data切片就是第一个元素的地址
+
 	hdr.Data = uintptr(unsafe.Pointer(&data[0]))
 	return b
 }
@@ -288,6 +292,10 @@ func (tb *tableBuilder) allocate(need int) []byte {
 
 func (tb *tableBuilder) calCheckSum(data []byte) []byte {
 
+}
+
+func CalCacheSum(data []byte) uint64 {
+	return uint64(crc32.Checksum(data, CastagnoliCrcTable))
 }
 
 /*

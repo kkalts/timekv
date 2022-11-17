@@ -1,15 +1,18 @@
 package v1
 
 import (
+	"encoding/binary"
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"math/rand"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 )
 
 func RandString(len int) string {
@@ -193,4 +196,131 @@ func TestSkipListIterator(t *testing.T) {
 		fmt.Printf("iter key %s, value %s\n", iter.Item().Key, iter.Item().Value)
 	}
 	fmt.Println("-----------------------------------------")
+}
+
+func TestU32(t *testing.T) {
+	//var data = make([]byte,0)
+	// 声明的是切片
+	var u32Slice = []uint32{1, 2, 3}
+	fmt.Printf("u32的值:%v \n", u32Slice)
+	fmt.Printf("u32的值:%p \n", u32Slice)
+	fmt.Printf("&u32的:%p \n", &u32Slice)
+	fmt.Printf("u32[0]的地址:%p \n", &u32Slice[0])
+	fmt.Printf("u32[1]的地址:%p \n", &u32Slice[1])
+	//
+	//var intArr [3]int
+	//fmt.Println(intArr)
+	//intArr[0] = 10
+	//intArr[1] = 20
+	//intArr[2] = 30
+	//fmt.Printf("intArr的地址=%p int[0]地址=%p int[1]地址%p int[2]地址%p", &intArr, &intArr[0], &intArr[1], &intArr[2])
+
+	// 声明数组
+
+	bytes := U32SliceToBytes(u32Slice)
+	fmt.Println("bytes", bytes)
+	fmt.Println(len(bytes))
+	fmt.Printf("bytes的地址%p \n", &bytes)
+}
+
+func U32SliceToBytes(data []uint32) []byte {
+	if len(data) == 0 {
+		return nil
+	}
+	var b []byte
+
+	// 通过反射 将引用变成指针
+	// 强转为*reflect.SliceHeader
+	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
+	//hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&b))
+	fmt.Printf("b的地址:%p \n", &b)
+	fmt.Printf("hdr的类型:%v \n", reflect.TypeOf(hdr))
+	fmt.Printf("hdr的值:%p \n", hdr)
+	//fmt.Printf("hdr的值2:%p \n",*hdr)
+	fmt.Printf("hdr的地址:%p \n", &hdr)
+	hdr.Len = len(data) * 4
+	hdr.Cap = hdr.Len
+	//fmt.Println("data的数据",data)
+	// 为什么data的地址和data[0]的地址不同
+	fmt.Printf("data的地址=%p \n", &data)
+	fmt.Printf("data的地址=%p \n", &data[0])
+	fmt.Printf("data的地址=%p \n", &data[1])
+	fmt.Printf("data的地址=%p \n", &data[2])
+	// data切片就是第一个元素的地址
+	// hdr.Data 存储data[0]的地址
+	hdr.Data = uintptr(unsafe.Pointer(&data[0]))
+	//fmt.Printf("hdr.Data的地址=%p \n",hdr.Data)
+	fmt.Printf("hdr.Data =%v \n", hdr.Data)
+	fmt.Printf("b的值%v\n", b)
+	return b
+}
+
+func TestU32ToBytes(t *testing.T) {
+	var v uint32 = 1
+	bytes := U32ToBytes(v)
+	fmt.Println(bytes)
+}
+
+/*
+	u32转字节切片
+*/
+func U32ToBytes(v uint32) []byte {
+	var uBuf [4]byte
+	// 大端序处理
+	binary.BigEndian.PutUint32(uBuf[:], v)
+	return uBuf[:]
+}
+
+func TestReflectFunc(t *testing.T) {
+	call1 := func(v1 int, v2 int) {
+		t.Log(v1, v2)
+	}
+	call2 := func(v1 int, v2 int, s string) {
+		t.Log(v1, v2, s)
+	}
+	var (
+		function reflect.Value
+		inValue  []reflect.Value
+		n        int
+	)
+	bridge := func(call interface{}, args ...interface{}) {
+		n = len(args)
+		inValue = make([]reflect.Value, n)
+		for i := 0; i < n; i++ {
+			inValue[i] = reflect.ValueOf(args[i])
+		}
+		function = reflect.ValueOf(call)
+		function.Call(inValue)
+	}
+	bridge(call1, 1, 2)
+	bridge(call2, 1, 2, "test2")
+}
+
+func TestSlice(t *testing.T) {
+	fmt.Printf("Slice:\n")
+
+	var a [10]byte
+
+	// reflect.SliceHeader is a runtime representation of the internal workings
+	// of a slice. To make it point to a specific address, use something like
+	// the following:
+	//    h.Data = uintptr(0x100)
+	// And replace '0x100' with the desired address.
+	var h reflect.SliceHeader
+	h.Data = uintptr(unsafe.Pointer(&a)) // The address of the first element of the underlying array.
+	h.Len = len(a)
+	h.Cap = len(a)
+
+	// Create an actual slice from the SliceHeader.
+	//s := *(*[]byte)(unsafe.Pointer(&h))
+	// 取*[]byte类型的值
+	s := *(*[]byte)(unsafe.Pointer(&h))
+	fmt.Printf("s的类型是%v\n", reflect.TypeOf(s))
+	fmt.Printf("Before:\n\ts: %v\n\ta: %v\n", s, a)
+	fmt.Printf("Before:\n\ts的地址: %p\n\ta的地址: %p\n", &s, &a)
+	// Copy a string into the slice. This fills the underlying array, which in
+	// this case has been manually set to 'a'.
+	//copy(s, "A string.")
+	a[0] = 1
+	fmt.Printf("After:\n\ts: %v\n\ta: %v\n", s, a)
 }
