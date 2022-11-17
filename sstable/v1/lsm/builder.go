@@ -203,11 +203,13 @@ func (tb *tableBuilder) finishCurBlock() {
 	entryOffsetsLen := len(tb.curBlock.entryOffsets)
 	// 按照4字节存
 	entryOLenBytes := U32ToBytes(uint32(entryOffsetsLen))
-	// 计算校验和 checkSum是8字节 uint64的 -> []byte
-	checkSum := tb.calCheckSum(tb.curBlock.data)
 
 	tb.append(entryOBytes)
 	tb.append(entryOLenBytes)
+	// 计算校验和 checkSum是8字节 uint64的 -> []byte
+	// 确定是对哪些部分计算校验和？ 所有数据（kv+entryoffsets）还是只有entryoffsets数据？ 看着应该是所有数据
+	checkSum := tb.calCheckSum(tb.curBlock.data[:tb.curBlock.end])
+
 	tb.append(checkSum)
 	tb.append(U32ToBytes(uint32(len(checkSum))))
 	tb.blockList = append(tb.blockList, tb.curBlock)
@@ -291,8 +293,19 @@ func (tb *tableBuilder) allocate(need int) []byte {
 }
 
 func (tb *tableBuilder) calCheckSum(data []byte) []byte {
+	// 为什么不直接返回uint32 然后转[]byte？
+	return U64ToBytes(CalCacheSum(data))
 
 }
+
+// U64ToBytes converts the given Uint64 to bytes
+func U64ToBytes(v uint64) []byte {
+	var uBuf [8]byte
+	binary.BigEndian.PutUint64(uBuf[:], v)
+	return uBuf[:]
+}
+
+var CastagnoliCrcTable = crc32.MakeTable(crc32.Castagnoli)
 
 func CalCacheSum(data []byte) uint64 {
 	return uint64(crc32.Checksum(data, CastagnoliCrcTable))
