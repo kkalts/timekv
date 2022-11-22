@@ -153,9 +153,12 @@ func (tb *tableBuilder) add(e *utils.Entry) {
 	keyHash := keyHash(key)
 	tb.keyHashes = append(tb.keyHashes, keyHash)
 	// 计算block 最大版本号（即sst的最大version 不断比较
-	if e.Version > tb.maxVersion {
-		tb.maxVersion = e.Version
+	// 需要解析key 解析出key的版本号 在Key后面追加时间戳作为版本号（要求在上一次 放入key时就将key处理好）
+	// 更新当前table(sst文件 最大的版本号）
+	if version := utils.ParseTs(key); version > tb.maxVersion {
+		tb.maxVersion = version
 	}
+
 	// 如果是当前block的第一个项 则diffkey为basekey
 	// 计算diffkey
 	var diffKey []byte
@@ -186,8 +189,20 @@ func (tb *tableBuilder) add(e *utils.Entry) {
 	val.EncodeValue(dst)
 
 }
-func (b *Block) calDiffKey(key []byte) []byte {
 
+/*
+ 计算当前key与basekey不同的部分（简单遍历整个key 然后）
+*/
+func (b *Block) calDiffKey(key []byte) []byte {
+	var i int
+	// 遍历 找到不同的就break 返回
+	for i = 0; i < len(key); i++ {
+		if key[i] != b.baseKey[i] {
+			break
+		}
+	}
+	// 返回当前key与basekey不同的部分（i及之后的）
+	return key[i:]
 }
 
 /*
@@ -323,8 +338,8 @@ type blockIterator struct {
 	val          []byte
 	entryOffsets []uint32
 	block        *Block
-
-	it *utils.Item
+	prevOverlap  uint16 // 迭代器中上一个key的相对于当前block的覆盖度（与basekey相同的长度）
+	it           *utils.Item
 }
 
 func (bi *blockIterator) Valid() bool      {}
@@ -362,7 +377,7 @@ func (bi *blockIterator) setIdx(idx int) {
 		bi.baseKey = bi.data[headerSize : headerSize+header.diff] // header.diff == 0
 	}
 	// 找到idx对应的kvdata
-	var entryEndOffset int // 当前idx的entry的endoffset  如何计算？？？
+	var entryEndOffset int // 当前idx的entry的endoffset
 	// 如果是最后一个entry 则entryEndOffset为data长度
 	if bi.idx+1 == len(bi.entryOffsets) {
 		entryEndOffset = len(bi.data)
@@ -375,10 +390,32 @@ func (bi *blockIterator) setIdx(idx int) {
 	var header Header
 	// 解析data中header数据到header结构体
 	header.decode(entryData)
+	// 比较当前header的overlap 与 当前迭代器所持的上一个key的prevoverlap
+	if header.overlap > bi.prevOverlap {
+		// 如果大于 则 当前header的覆盖度更高
+		// 比如 basekey=abc  当前key是 abcxxx 则header overlap是3
+		// prevOverlap是2 则上一个key是abxxxx  即覆盖 ab
+		// 这里bi.key 应该还是上一个的key 还没更新 之后计算diffkey 再更新
+		// 则这里 要是大于 则需要取出 当前key 应该是的前缀
+
+		// bi.key[:bi.prevOverlap]先取出ab 再取出c 最终组成的当前key的前缀是 abc 再加diffkey就是完整的key
+		bi.key = append(bi.key[:bi.prevOverlap], bi.baseKey[bi.prevOverlap:header.overlap]...)
+		// 为什么这里不直接 使用bi.key = bi.basekey？ 因为像上一个key是 abxxx 其并没有完全覆盖basekey 甚至可能与basekey毫无关系
+		//bi.key = bi.baseKey
+	}
+	// 如果小于 则说明当前key 比 上一个key 与basekey覆盖度更小 则在下面更新key时 取当前的overlap + diffkey即可
+	// 比如 当前key是 axxxx overlap 是 1 ，上一个是abxxx
+	// 则 bi.key = append(bi.key[:header.overlap], diffKey...) 即 append(a,diffkey)
+
+	// 更新prevOverlap
+	bi.prevOverlap = header.overlap
+
 	// 图中的expired_at 暂时忽略了？
 	valueOffset := header.diff + headerSize
 	diffKey := entryData[headerSize:valueOffset]
-	bi.key = bi.baseKey + diffKey
+	// key = basekey + diffkey 是字节数组 则可以直接append
+	bi.key = append(bi.key[:header.overlap], diffKey...)
+	//bi.key = bi.baseKey + diffKey
 	val := &utils.ValueStruct{}
 	val.DecodeValue(entryData[valueOffset:])
 	bi.val = val.Value
