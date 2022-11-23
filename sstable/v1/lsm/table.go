@@ -10,6 +10,9 @@ import (
 	"sort"
 )
 
+/*
+	sst文件在内存中的句柄对象
+*/
 type Table struct {
 	sst *file.SSTable
 	//blocks []*Block
@@ -19,6 +22,8 @@ type Table struct {
 
 /*
 	创建一个table
+	builder不空 将数据flush （序列化）
+	builder为空 从sst文件中加载数据（初始化）
 */
 func openTable(opt Options, tableName string, builder *tableBuilder) *Table {
 	// 创建sst对象
@@ -55,11 +60,14 @@ func openTable(opt Options, tableName string, builder *tableBuilder) *Table {
 
 */
 func (t *Table) Search(key []byte, maxVs *uint64) (entry *utils.Entry, err error) {
+	if maxVs == nil {
+		return nil, utils.ErrKeyNotFound
+	}
 	index := t.sst.Index()
 	filterMap := index.BloomFilter
 	bloomFilter := utils.NewBloomFilterForTable(filterMap)
 	if !bloomFilter.MayContainKey(key) {
-		return nil, nil
+		return nil, utils.ErrKeyNotFound
 	}
 	// 创建table的迭代器
 	ti := NewTableIterator()
@@ -67,16 +75,24 @@ func (t *Table) Search(key []byte, maxVs *uint64) (entry *utils.Entry, err error
 	// 是否找到
 	// 没找到
 	if !ti.Valid() {
-		return nil, nil
+		return nil, utils.ErrKeyNotFound
 	}
 	// 找到了
 	// 再次判断找到的key与当前key是否相同 以及解析时间戳 版本等
 	// 查找的key的版本号 是否大于最大版本号 大于则更新 小于则没找到
-	if bytes.Equal(key, ti.Item().E) {
-		// 相当
+	if len(key) != len(ti.Item().Entry().Key) {
+		return nil, utils.ErrKeyNotFound
+	}
+	if bytes.Equal(utils.ParseKey(key), utils.ParseKey(ti.Item().Entry().Key)) {
+		// 相等 判断当前key的版本号是否大于最大版本号 如果大于则更新 如果小于则不返回数据
+		if curVersion := utils.ParseTs(ti.Item().Entry().Key); curVersion > *maxVs {
+			*maxVs = curVersion
+			return ti.Item().Entry(), nil
+		}
+
 	}
 	//
-
+	return nil, utils.ErrKeyNotFound
 }
 
 /*
@@ -102,7 +118,7 @@ func (ti *TableIterator) Valid() bool {
 }
 func (ti *TableIterator) Rewind() {}
 func (ti *TableIterator) Item() utils.Item {
-	return utils.Item{}
+	return ti.it
 }
 func (ti *TableIterator) Close() error {
 	return nil

@@ -10,6 +10,6 @@ type Iterator interface {
 	Seek(key []byte)
 }
 
-type Item struct {
-	E *Entry
+type Item interface {
+	Entry() *Entry
 }

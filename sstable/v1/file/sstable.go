@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"github.com/golang/protobuf/proto"
 	"github.com/hardcore-os/corekv/sstable/v1/pb"
+	"os"
 	"sync"
 )
 
 type SSTable struct {
-	lock      *sync.RWMutex
-	f         *MmapFile // mmap对象
+	lock *sync.RWMutex
+	f    *MmapFile // mmap对象
+
 	idxLen    int
 	idxStart  int
 	idxTables *pb.TableIndex
@@ -18,12 +20,25 @@ type SSTable struct {
 	maxKey    []byte
 }
 
-func OpenSSTable() *SSTable {
-
+/*
+	打开一个指定文件ID的sst文件 映射到SSTable 结构体
+	已经存在的sst文件
+	类似与NewSSTable
+*/
+func OpenSSTable(opt Options) *SSTable {
+	// 根据文件ID找到sst文件mmap文件 获取其句柄？
+	OpenMmapFile(opt.FileName, os.O_CREATE|os.O_RDWR, opt.MaxSz)
+	return &SSTable{
+		lock: &sync.RWMutex{},
+	}
 }
 func BytesToU32(b []byte) uint32 {
 	return binary.BigEndian.Uint32(b)
 }
+
+/*
+	初始化 是指将一个完整的sst文件所有相关数据 映射到 SSTable结构体
+*/
 func (sst *SSTable) Init() error {
 	// 从高地址开始读 读4Byte 校验和长度 读f的data
 	readLastPos := len(sst.f.Data)
