@@ -1,10 +1,12 @@
 package lsm
 
 import (
-	"fmt"
-	"github.com/golang/protobuf/proto"
+	"bytes"
+	_ "fmt"
+	_ "github.com/golang/protobuf/proto"
 	"github.com/hardcore-os/corekv/sstable/v1/file"
 	"github.com/hardcore-os/corekv/sstable/v1/utils"
+	"io"
 	"sort"
 )
 
@@ -65,12 +67,14 @@ func (t *Table) Search(key []byte, maxVs *uint64) (entry *utils.Entry, err error
 	// 是否找到
 	// 没找到
 	if !ti.Valid() {
-
+		return nil, nil
 	}
 	// 找到了
 	// 再次判断找到的key与当前key是否相同 以及解析时间戳 版本等
 	// 查找的key的版本号 是否大于最大版本号 大于则更新 小于则没找到
-
+	if bytes.Equal(key, ti.Item().E) {
+		// 相当
+	}
 	//
 
 }
@@ -84,6 +88,7 @@ type TableIterator struct {
 	it       utils.Item
 	blockPos int
 	bi       *blockIterator
+	err      error
 }
 
 func NewTableIterator() *TableIterator {
@@ -92,10 +97,16 @@ func NewTableIterator() *TableIterator {
 func (ti *TableIterator) Next() {
 
 }
-func (ti *TableIterator) Valid() bool      {}
-func (ti *TableIterator) Rewind()          {}
-func (ti *TableIterator) Item() utils.Item {}
-func (ti *TableIterator) Close() error     {}
+func (ti *TableIterator) Valid() bool {
+	return ti.err != io.EOF // 如果没有的时候 则是EOF
+}
+func (ti *TableIterator) Rewind() {}
+func (ti *TableIterator) Item() utils.Item {
+	return utils.Item{}
+}
+func (ti *TableIterator) Close() error {
+	return nil
+}
 
 /*
 	找目标值
@@ -140,32 +151,46 @@ func (ti *TableIterator) SeekForBlock(idx int, key []byte) {
 	var block = &Block{}
 	// 通过blockOffset从sst文件中获取到具体的block
 	blockData, err := ti.t.read(int(blockOffset.Offset), int(blockOffset.Len))
+	if err != nil {
+		ti.err = err
+		return
+	}
+
 	block.data = blockData
 	checkSumLen, err := ti.t.read(len(blockData)-4, 4)
-	block.checkSumLen = uint16(BytesToU32(checkSumLen))
+	if err != nil {
+		ti.err = err
+		return
+	}
+	block.checkSumLen = uint16(utils.BytesToU32(checkSumLen))
 
-	checkSum, err := ti.t.read(len(blockData)-4-int(BytesToU32(checkSumLen)), int(BytesToU32(checkSumLen)))
+	checkSum, err := ti.t.read(len(blockData)-4-int(utils.BytesToU32(checkSumLen)), int(utils.BytesToU32(checkSumLen)))
+	if err != nil {
+		ti.err = err
+		return
+	}
 	block.checkSum = checkSum
 	block.end = len(blockData)
-	offsetsLen, err := ti.t.read(len(blockData)-4-int(BytesToU32(checkSumLen))-4, 4)
-	block.offsetLen = uint16(BytesToU32(offsetsLen))
-	entryOffsets, err := ti.t.read(len(blockData)-4-int(BytesToU32(checkSumLen))-4-int(block.offsetLen)*4, int(block.offsetLen)*4)
-
-	block.entryOffsets = BytesToU32Slice(entryOffsets)
-	block.kvDataStartPos = len(blockData) - 4 - int(BytesToU32(checkSumLen)) - 4 - int(block.offsetLen)
+	offsetsLen, err := ti.t.read(len(blockData)-4-int(utils.BytesToU32(checkSumLen))-4, 4)
+	if err != nil {
+		ti.err = err
+		return
+	}
+	block.offsetLen = uint16(utils.BytesToU32(offsetsLen))
+	entryOffsets, err := ti.t.read(len(blockData)-4-int(utils.BytesToU32(checkSumLen))-4-int(block.offsetLen)*4, int(block.offsetLen)*4)
+	if err != nil {
+		ti.err = err
+		return
+	}
+	block.entryOffsets = utils.BytesToU32Slice(entryOffsets)
+	block.kvDataStartPos = len(blockData) - 4 - int(utils.BytesToU32(checkSumLen)) - 4 - int(block.offsetLen)
 	//firstEntryOffset:=block.entryOffsets[0]
 	// 每个entry的长度是四字节存储 entryoffsets数组 是uint32的数组 即4个字节
 	// 对block做二分查找 使用block迭代器
 	ti.bi.Seek(key)
-
+	ti.err = ti.bi.err
+	ti.it = ti.bi.Item()
 }
 func (t *Table) read(off, sz int) ([]byte, error) {
 	return t.sst.Bytes(off, sz)
-}
-func BytesToU32(data []byte) uint32 {
-
-}
-
-func BytesToU32Slice(data []byte) []uint32 {
-
 }

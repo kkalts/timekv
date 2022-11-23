@@ -1,14 +1,11 @@
 package lsm
 
 import (
-	"encoding/binary"
-	"fmt"
+	//"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/hardcore-os/corekv/sstable/v1/file"
 	"github.com/hardcore-os/corekv/sstable/v1/pb"
 	"github.com/hardcore-os/corekv/sstable/v1/utils"
-	"hash/crc32"
-	"reflect"
 	"sort"
 	"unsafe"
 )
@@ -101,16 +98,24 @@ func (tb *tableBuilder) flush() {
 	// 将以上数据都放入一个大[]byte （data index)
 	var buf = make([]byte, 0)
 
-	// data拷贝到buf
+	// data拷贝到buf 遍历blocklist
+	for i := 0; i < len(tb.blockList); i++ {
+		block := tb.blockList[i]
+		buf = append(buf, block.data...)
+	}
 
 	// index相关拷贝到buf
+	buf = append(buf, index...)
+	buf = append(buf, utils.U32ToBytes(uint32(indexLen))...)
+	buf = append(buf, indexCheckSum...)
+	buf = append(buf, utils.U32ToBytes(uint32(indexCheckSumLen))...)
 
 	// 创建sstable对象
 	ssTable := file.OpenSSTable()
 
 	// 调用sstable方法 将数据放入sstable mmap中data中（通过分配内存 然后拷贝的方式）  刷盘
 	// buf拷贝到mmap.Data
-	dst, err := ssTable.Bytes(0)
+	dst, err := ssTable.Bytes(0, len(buf))
 	copy(dst, buf)
 }
 
@@ -150,7 +155,7 @@ func (tb *tableBuilder) add(e *utils.Entry) {
 	}
 
 	// 否 计算hash(key)
-	keyHash := keyHash(key)
+	keyHash := keyHash(utils.ParseKey(key))
 	tb.keyHashes = append(tb.keyHashes, keyHash)
 	// 计算block 最大版本号（即sst的最大version 不断比较
 	// 需要解析key 解析出key的版本号 在Key后面追加时间戳作为版本号（要求在上一次 放入key时就将key处理好）
@@ -213,11 +218,11 @@ func (tb *tableBuilder) finishCurBlock() {
 		return
 	}
 	// 是 计算当前block的各项信息 序列化(指将各种数据转为[]byte 放入data)当前block（放入block list)
-	entryOBytes := U32SliceToBytes(tb.curBlock.entryOffsets)
+	entryOBytes := utils.U32SliceToBytes(tb.curBlock.entryOffsets)
 
 	entryOffsetsLen := len(tb.curBlock.entryOffsets)
 	// 按照4字节存
-	entryOLenBytes := U32ToBytes(uint32(entryOffsetsLen))
+	entryOLenBytes := utils.U32ToBytes(uint32(entryOffsetsLen))
 
 	tb.append(entryOBytes)
 	tb.append(entryOLenBytes)
@@ -226,7 +231,7 @@ func (tb *tableBuilder) finishCurBlock() {
 	checkSum := tb.calCheckSum(tb.curBlock.data[:tb.curBlock.end])
 
 	tb.append(checkSum)
-	tb.append(U32ToBytes(uint32(len(checkSum))))
+	tb.append(utils.U32ToBytes(uint32(len(checkSum))))
 	tb.blockList = append(tb.blockList, tb.curBlock)
 	tb.keyCount += uint32(len(tb.curBlock.entryOffsets))
 	tb.curBlock = nil
@@ -235,35 +240,7 @@ func (tb *tableBuilder) finishCurBlock() {
 }
 
 func keyHash(key []byte) uint32 {
-
-}
-
-/*
-	uint32切片转字节切片
-*/
-func U32SliceToBytes(data []uint32) []byte {
-	if len(data) == 0 {
-		return nil
-	}
-	var b []byte
-	// 通过反射 将引用变成指针
-	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&b))
-
-	hdr.Len = len(data) * 4 // uint32是四字节
-	hdr.Cap = hdr.Len
-	// data切片就是第一个元素的地址
-
-	hdr.Data = uintptr(unsafe.Pointer(&data[0]))
-	return b
-}
-
-/*
-	u32转字节切片
-*/
-func U32ToBytes(v uint32) []byte {
-	var uBuf [4]byte
-	binary.BigEndian.PutUint32(uBuf[:], v)
-	return uBuf[:]
+	return utils.Hash(key)
 }
 
 /*
@@ -309,21 +286,8 @@ func (tb *tableBuilder) allocate(need int) []byte {
 
 func (tb *tableBuilder) calCheckSum(data []byte) []byte {
 	// 为什么不直接返回uint32 然后转[]byte？
-	return U64ToBytes(CalCacheSum(data))
+	return utils.U64ToBytes(utils.CalCacheSum(data))
 
-}
-
-// U64ToBytes converts the given Uint64 to bytes
-func U64ToBytes(v uint64) []byte {
-	var uBuf [8]byte
-	binary.BigEndian.PutUint64(uBuf[:], v)
-	return uBuf[:]
-}
-
-var CastagnoliCrcTable = crc32.MakeTable(crc32.Castagnoli)
-
-func CalCacheSum(data []byte) uint64 {
-	return uint64(crc32.Checksum(data, CastagnoliCrcTable))
 }
 
 /*
@@ -342,10 +306,16 @@ type blockIterator struct {
 	it           *utils.Item
 }
 
-func (bi *blockIterator) Valid() bool      {}
-func (bi *blockIterator) Rewind()          {}
-func (bi *blockIterator) Item() utils.Item {}
-func (bi *blockIterator) Close() error     {}
+func (bi *blockIterator) Valid() bool {
+	return bi.key != nil
+}
+func (bi *blockIterator) Rewind() {}
+func (bi *blockIterator) Item() utils.Item {
+	return *bi.it
+}
+func (bi *blockIterator) Close() error {
+	return nil
+}
 func (bi *blockIterator) Seek(key []byte) {
 	startIndex := 0 // This tells from which index we should start binary search.
 

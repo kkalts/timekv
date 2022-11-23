@@ -17,3 +17,14 @@ func ParseTs(key []byte) uint64 {
 	}
 	return math.MaxUint64 - binary.BigEndian.Uint64(key[len(key)-8:])
 }
+
+/*
+	解析key中实际key的部分
+*/
+func ParseKey(key []byte) []byte {
+	if len(key) < 8 {
+		return key
+	}
+
+	return key[:len(key)-8]
+}
