@@ -12,6 +12,7 @@ import (
 type SSTable struct {
 	lock *sync.RWMutex
 	f    *MmapFile // mmap对象
+	fid  uint64
 
 	idxLen    int
 	idxStart  int
@@ -27,9 +28,14 @@ type SSTable struct {
 */
 func OpenSSTable(opt Options) *SSTable {
 	// 根据文件ID找到sst文件mmap文件 获取其句柄？
-	OpenMmapFile(opt.FileName, os.O_CREATE|os.O_RDWR, opt.MaxSz)
+	mmapFile, err := OpenMmapFile(opt.FileName, os.O_CREATE|os.O_RDWR, opt.MaxSz)
+	if err != nil {
+
+	}
 	return &SSTable{
 		lock: &sync.RWMutex{},
+		f:    mmapFile,
+		fid:  opt.FID,
 	}
 }
 func BytesToU32(b []byte) uint32 {
@@ -38,6 +44,8 @@ func BytesToU32(b []byte) uint32 {
 
 /*
 	初始化 是指将一个完整的sst文件所有相关数据 映射到 SSTable结构体
+	解析sst文件数据
+
 */
 func (sst *SSTable) Init() error {
 	// 从高地址开始读 读4Byte 校验和长度 读f的data

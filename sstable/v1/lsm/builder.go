@@ -115,6 +115,7 @@ func (tb *tableBuilder) flush() {
 
 	// 调用sstable方法 将数据放入sstable mmap中data中（通过分配内存 然后拷贝的方式）  刷盘
 	// buf拷贝到mmap.Data
+	// 同步刷盘还是异步刷盘？
 	dst, err := ssTable.Bytes(0, len(buf))
 	copy(dst, buf)
 }

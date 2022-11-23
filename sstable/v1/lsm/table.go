@@ -27,12 +27,17 @@ type Table struct {
 */
 func openTable(opt Options, tableName string, builder *tableBuilder) *Table {
 	// 创建sst对象
+	// 不管是新文件还是老文件，都与内存建立了映射 数据可以直接使用
+	// 老文件 是否意味已经flush过？那么再次flush 是否就不应该从offset=0开始flush？
+	// 老文件 用做检索 是否需要限制flush？ 只能在传参时注意？
+	// 以及一个sst文件 会多次flush吗 应该不可以
 	ssTable := file.OpenSSTable()
 	if builder != nil {
 		// builder不为空 将builder序列化到sst文件 flush
 		builder.flush()
 	}
 	// builder为空 进行初始化 恢复.sst文件 加载Index到内存（sstable?
+	// 从mmap的内存空间中 将原sst文件的索引解析到内存中
 	ssTable.Init()
 
 	return &Table{
