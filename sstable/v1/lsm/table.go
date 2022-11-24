@@ -27,6 +27,7 @@ type Table struct {
 	builder为空 从sst文件中加载数据（初始化）
 */
 func openTable(opt Options, tableName string, builder *tableBuilder) *Table {
+
 	// 创建sst对象
 	// 不管是新文件还是老文件，都与内存建立了映射 数据可以直接使用
 	// 老文件 是否意味已经flush过？那么再次flush 是否就不应该从offset=0开始flush？
