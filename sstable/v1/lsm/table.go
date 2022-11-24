@@ -32,17 +32,26 @@ func openTable(opt Options, tableName string, builder *tableBuilder) *Table {
 	// 老文件 用做检索 是否需要限制flush？ 只能在传参时注意？
 	// 以及一个sst文件 会多次flush吗 应该不可以
 	ssTable := file.OpenSSTable()
+	var t *Table
+	t.sst = ssTable
 	if builder != nil {
 		// builder不为空 将builder序列化到sst文件 flush
 		builder.flush()
 	}
 	// builder为空 进行初始化 恢复.sst文件 加载Index到内存（sstable?
 	// 从mmap的内存空间中 将原sst文件的索引解析到内存中
-	ssTable.Init()
+	err := ssTable.Init()
+	if err != nil {
 
-	return &Table{
-		sst: ssTable,
 	}
+
+	// 通过迭代器设置ssTable的maxKey
+	//tableIterator := NewTableIterator() // 默认降序？为什么 需要在实现时降序实现 实现时根据配置来处理
+	//
+	//tableIterator.Rewind()
+	//t.sst.SetMaxKey(tableIterator.Item().Entry().Key)
+
+	return t
 }
 
 // 在openTable后的sst经过初始化 有了sst文件的index等数据 即可用于检索
@@ -104,15 +113,15 @@ func (t *Table) Search(key []byte, maxVs *uint64) (entry *utils.Entry, err error
 	table迭代器
 */
 type TableIterator struct {
-	t *Table
-	//opt *Options
+	t        *Table
+	opt      *Options
 	it       utils.Item
 	blockPos int
 	bi       *blockIterator
 	err      error
 }
 
-func NewTableIterator() *TableIterator {
+func NewTableIterator(options *utils.Options) *TableIterator {
 	return &TableIterator{}
 }
 func (ti *TableIterator) Next() {

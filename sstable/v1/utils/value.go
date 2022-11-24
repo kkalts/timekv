@@ -67,3 +67,7 @@ func U64ToBytes(v uint64) []byte {
 	binary.BigEndian.PutUint64(uBuf[:], v)
 	return uBuf[:]
 }
+
+func BytesToU64(data []byte) uint64 {
+	return binary.BigEndian.Uint64(data)
+}

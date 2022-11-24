@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"fmt"
+	"github.com/pkg/errors"
 	"hash/crc32"
 )
 
@@ -32,4 +33,17 @@ var CastagnoliCrcTable = crc32.MakeTable(crc32.Castagnoli)
 
 func CalCacheSum(data []byte) uint64 {
 	return uint64(crc32.Checksum(data, CastagnoliCrcTable))
+}
+
+/*
+	校验数据
+		对data使用相同的方式计算校验和 与 expected比较
+*/
+func VerifyChecksum(data []byte, expected []byte) error {
+	newCheckSum := CalCacheSum(data)
+	expectedU64 := BytesToU64(expected)
+	if newCheckSum != newCheckSum {
+		return errors.Wrapf(ErrChecksumMismatch, "actual: %d, expected: %d", newCheckSum, expectedU64)
+	}
+	return nil
 }
