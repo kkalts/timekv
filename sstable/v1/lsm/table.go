@@ -7,6 +7,7 @@ import (
 	"github.com/hardcore-os/corekv/sstable/v1/file"
 	"github.com/hardcore-os/corekv/sstable/v1/utils"
 	"io"
+	"os"
 	"sort"
 )
 
@@ -31,16 +32,30 @@ func openTable(opt Options, tableName string, builder *tableBuilder) *Table {
 	// 老文件 是否意味已经flush过？那么再次flush 是否就不应该从offset=0开始flush？
 	// 老文件 用做检索 是否需要限制flush？ 只能在传参时注意？
 	// 以及一个sst文件 会多次flush吗 应该不可以
-	ssTable := file.OpenSSTable()
-	var t *Table
-	t.sst = ssTable
+	fid := utils.FID(tableName)
+	t := &Table{fid: fid}
+	var err error
+	//t.sst = ssTable
 	if builder != nil {
 		// builder不为空 将builder序列化到sst文件 flush
-		builder.flush()
+		flushT, err := builder.flush(tableName)
+		if err != nil {
+
+		}
+		t = flushT
+
+	} else {
+		ssTable := file.OpenSSTable(&file.Options{
+			FileName: tableName,
+			//Dir:      lm.opt.WorkDir,
+			Flag: os.O_CREATE | os.O_RDWR,
+			//MaxSz:    int(sstSize)
+		})
+		t.sst = ssTable
 	}
 	// builder为空 进行初始化 恢复.sst文件 加载Index到内存（sstable?
 	// 从mmap的内存空间中 将原sst文件的索引解析到内存中
-	err := ssTable.Init()
+	err = t.sst.Init()
 	if err != nil {
 
 	}
@@ -84,7 +99,7 @@ func (t *Table) Search(key []byte, maxVs *uint64) (entry *utils.Entry, err error
 		return nil, utils.ErrKeyNotFound
 	}
 	// 创建table的迭代器
-	ti := NewTableIterator()
+	ti := NewTableIterator(&utils.Options{})
 	ti.Seek(key)
 	// 是否找到
 	// 没找到
@@ -114,7 +129,7 @@ func (t *Table) Search(key []byte, maxVs *uint64) (entry *utils.Entry, err error
 */
 type TableIterator struct {
 	t        *Table
-	opt      *Options
+	opt      *utils.Options
 	it       utils.Item
 	blockPos int
 	bi       *blockIterator
@@ -122,7 +137,9 @@ type TableIterator struct {
 }
 
 func NewTableIterator(options *utils.Options) *TableIterator {
-	return &TableIterator{}
+	return &TableIterator{
+		opt: options,
+	}
 }
 func (ti *TableIterator) Next() {
 

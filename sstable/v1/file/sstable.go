@@ -27,7 +27,7 @@ type SSTable struct {
 	已经存在的sst文件
 	类似与NewSSTable
 */
-func OpenSSTable(opt Options) *SSTable {
+func OpenSSTable(opt *Options) *SSTable {
 	// 根据文件ID找到sst文件mmap文件 获取其句柄？
 	mmapFile, err := OpenMmapFile(opt.FileName, os.O_CREATE|os.O_RDWR, opt.MaxSz)
 	if err != nil {
@@ -49,6 +49,9 @@ func BytesToU32(b []byte) uint32 {
 
 */
 func (sst *SSTable) Init() error {
+	if sst == nil {
+		return nil
+	}
 	// 从高地址开始读 读4Byte 校验和长度 读f的data
 	readLastPos := len(sst.f.Data)
 	checkSumLenPos := readLastPos - 4

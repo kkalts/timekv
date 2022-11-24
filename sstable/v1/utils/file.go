@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"hash/crc32"
+	"path"
+	"strconv"
+	"strings"
 )
 
 /*
@@ -46,4 +49,22 @@ func VerifyChecksum(data []byte, expected []byte) error {
 		return errors.Wrapf(ErrChecksumMismatch, "actual: %d, expected: %d", newCheckSum, expectedU64)
 	}
 	return nil
+}
+
+/*
+	通过sst文件名 获取其序号
+*/
+func FID(name string) uint64 {
+	name = path.Base(name)
+	if !strings.HasSuffix(name, ".sst") {
+		return 0
+	}
+	//	suffix := name[len(fileSuffix):]
+	name = strings.TrimSuffix(name, ".sst")
+	id, err := strconv.Atoi(name)
+	if err != nil {
+		//Err(err)
+		return 0
+	}
+	return uint64(id)
 }

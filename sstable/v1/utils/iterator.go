@@ -13,3 +13,8 @@ type Iterator interface {
 type Item interface {
 	Entry() *Entry
 }
+
+type Options struct {
+	Prefix []byte
+	IsAsc  bool
+}

@@ -6,6 +6,7 @@ import (
 	"github.com/hardcore-os/corekv/sstable/v1/file"
 	"github.com/hardcore-os/corekv/sstable/v1/pb"
 	"github.com/hardcore-os/corekv/sstable/v1/utils"
+	"os"
 	"sort"
 	"unsafe"
 )
@@ -51,10 +52,10 @@ type BuildData struct {
 /*
 	序列化builder（内存数据） 序列化为sst文件 存储到硬盘
 */
-func (tb *tableBuilder) flush() {
+func (tb *tableBuilder) flush(tableName string) (t *Table, err error) {
 	// 序列化当前block
 	tb.finishCurBlock()
-
+	t = &Table{fid: utils.FID(tableName)}
 	// 构建布隆过滤器 将当前builder的所有kv数据都放入布隆过滤器中
 	filter := utils.NewBloomFilter(len(tb.keyHashes), tb.opt.BloomFalsePositive)
 	for i := 0; i < len(tb.keyHashes); i++ {
@@ -111,13 +112,20 @@ func (tb *tableBuilder) flush() {
 	buf = append(buf, utils.U32ToBytes(uint32(indexCheckSumLen))...)
 
 	// 创建sstable对象
-	ssTable := file.OpenSSTable()
+	ssTable := file.OpenSSTable(&file.Options{
+		FileName: tableName,
+		//Dir:      lm.opt.WorkDir,
+		Flag: os.O_CREATE | os.O_RDWR,
+		//MaxSz:    int(bd.size)
+	})
+	t.sst = ssTable
 
 	// 调用sstable方法 将数据放入sstable mmap中data中（通过分配内存 然后拷贝的方式）  刷盘
 	// buf拷贝到mmap.Data
 	// 同步刷盘还是异步刷盘？
 	dst, err := ssTable.Bytes(0, len(buf))
 	copy(dst, buf)
+	return t, nil
 }
 
 type Index struct {
