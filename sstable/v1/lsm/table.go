@@ -19,6 +19,7 @@ type Table struct {
 	//blocks []*Block
 	//index 	*Index
 	fid uint64 // sstable的编号 （每个sstable都有自己的编号）
+	//lm *LeverManager // 类似上下文 参数反引用
 }
 
 /*
