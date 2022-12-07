@@ -1,6 +1,7 @@
 package file
 
 import (
+	"github.com/golang/protobuf/proto"
 	v1 "github.com/hardcore-os/corekv/cache/v1"
 	"github.com/hardcore-os/corekv/sstable/v1/lsm"
 	"github.com/hardcore-os/corekv/sstable/v1/pb"
@@ -108,22 +109,28 @@ func OpenManifestFile(opt *Options) (*ManifestFile, error) {
 		manifest := &Manifest{}
 
 		// 使用覆写的方式进行创建文件 ？ 为什么用覆写的方式
-		rewriteManifestFile()
+		rewriteManifestFile(opt, manifest)
 	}
 
 	// 重放
 
 }
-func replayManifestFile() {
 
-}
 func rewriteManifestFile(opt *Options, m *Manifest) {
 	fd, err := os.OpenFile(opt.FileName+"-remanifest", os.O_CREATE|os.O_RDWR, 666)
 
-	// 将m manifest的数据转换成manifestchange 进行序列化 并
+	// 将m manifest的数据转换成manifestchange 进行序列化 并追加到文件
 	changes := m.transManifestToChange()
 	set := pb.ManifestChangeSet{Changes: changes}
+	marshalChangeSet, err := proto.Marshal(&set)
+	if err != nil {
 
+	}
+	_, err = fd.Write(marshalChangeSet)
+	if err != nil {
+
+	}
+	os.Rename(opt.FileName+"-remanifest", opt.FileName+"-manifest")
 }
 
 func (m *Manifest) transManifestToChange() []*pb.ManifestChange {
@@ -142,6 +149,44 @@ func newCreateChange(fid uint64, level int, checksum []byte) *pb.ManifestChange 
 		Level:    uint32(level),
 		Checksum: checksum,
 	}
+}
+
+/*
+	重放manifest文件
+		即解析manifest文件的manifestChange 并将数据放入manifest数据结构中
+*/
+func replayManifestFile(m *Manifest, opt *Options) {
+	// 读取manifest文件
+	fd, err := os.Open(opt.FileName)
+	if err != nil {
+
+	}
+	var manifestChangeByte []byte
+	read, err := fd.Read(manifestChangeByte)
+	var manifestChangeSet = &pb.ManifestChangeSet{}
+	err := proto.Unmarshal(manifestChangeByte, manifestChangeSet)
+
+	for i := 0; i < len(manifestChangeSet.Changes); i++ {
+		change := manifestChangeSet.Changes[i]
+
+		switch change.Op {
+		case pb.ManifestChange_CREATE:
+			levelMap := m.Levels[change.Level].Tables
+			levelMap[change.Id] = struct{}{}
+			table := TableManifest{
+				Level:    uint8(change.Level),
+				CheckSum: change.Checksum,
+			}
+			m.Tables[change.Id] = table
+			m.Creations++
+		case pb.ManifestChange_DELETE:
+			delete(m.Tables, change.Id)
+			levelManifest := m.Levels[change.Level]
+			delete(levelManifest.Tables, change.Id)
+			m.Deletions++
+		}
+	}
+
 }
 
 /*
