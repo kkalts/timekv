@@ -9,34 +9,16 @@ import (
 	"sync"
 )
 
-/*
-	管理LSM的层级
-*/
-type LevelManager struct {
-	maxFid uint64
-	//opt *Options
-	cache *v1.Cache
-
-	manifestFile *ManifestFile // manifest文件结构体
-
-	// 形成二维数组 （行-sstable对象） 将ManifestFile解析出的map(manifest-Levels-LevelManifest)最终加载到levels
-	// 疑问：为什么还要再加载？ 最终查询时使用二维数组来承载
-	// 在增删改时使用map []LevelManifest的形式
-	levels []*LevelHandler
-}
-
-type LevelHandler struct {
-	sync.RWMutex
-	levelNum int
-	tables   []*lsm.Table // 应该是sstable（文件）加载到内存中的句柄（对象）
-}
-
 type ManifestFile struct {
-	//opt
+	opt                      Options
 	fd                       *os.File // 这里暂时使用普通IO来处理Manifest文件相关 文件句柄
 	lock                     sync.Mutex
 	deletionRewriteThreshold int       // 进行覆写的阈值
 	manifest                 *Manifest // 具体的manifest数据结构体
+}
+
+func (mf *ManifestFile) GetManifest() *Manifest {
+	return mf.manifest
 }
 
 /*
@@ -104,16 +86,20 @@ func OpenManifestFile(opt *Options) (*ManifestFile, error) {
 	if err != nil {
 
 	}
+	var manifest *Manifest
+	manifest = manifestFile.manifest
 	// 如果不存在 则创建内存的manifest结构（用于后续Manifest数据处理 最终再刷盘。。。）
 	if fd == nil {
-		manifest := &Manifest{}
+		manifest = &Manifest{}
 
 		// 使用覆写的方式进行创建文件 ？ 为什么用覆写的方式
 		rewriteManifestFile(opt, manifest)
 	}
 
 	// 重放
+	replayManifestFile(manifest, opt)
 
+	return manifestFile, nil
 }
 
 func rewriteManifestFile(opt *Options, m *Manifest) {

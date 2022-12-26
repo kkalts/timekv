@@ -68,3 +68,17 @@ func FID(name string) uint64 {
 	}
 	return uint64(id)
 }
+
+/*
+	通过fid获取文件名
+*/
+func GetFileNameSSTable(dir string, fid uint64) string {
+
+}
+
+/*
+	根据目录路径获取其下所有sst文件ID
+*/
+func LoadSSTFIDMap(dir string) map[uint64]struct{} {
+
+}
