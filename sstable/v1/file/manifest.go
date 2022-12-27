@@ -22,6 +22,35 @@ func (mf *ManifestFile) GetManifest() *Manifest {
 }
 
 /*
+	写入新sst文件数据到manifestfile manifest
+*/
+func (mf *ManifestFile) AddTableMeta(levelNum int, t *TableMeta) {
+	// 创建changeset对象
+	createChange := newCreateChange(t.ID, levelNum, t.CheckSum)
+
+	// 放到内存的manifest
+	applyManifestChangeSetToManifest(mf.manifest, createChange)
+	// 是否需要覆写？ 判断是否达到覆写阈值
+	if yu {
+		rewriteManifestFile(mf.opt, mf.manifest)
+		// 需要覆写
+	} else {
+		// 不用覆写 直接追加 追加到fd文件中
+
+	}
+
+	// 调用sync 同步数据到硬盘manifest文件
+	mf.fd.Sync()
+}
+
+/*
+	将changeset放入manifest内存数据结构中
+*/
+func applyManifestChangeSetToManifest(m *Manifest, changeSet *pb.ManifestChangeSet) {
+
+}
+
+/*
 	状态机
 	元数据状态维护
 */
@@ -72,9 +101,9 @@ type TableMeta struct {
 /*
 	接口设计 自顶而下
 */
-func NewLevelManger() *LevelManager {
-
-}
+//func NewLevelManger() *LevelManager {
+//
+//}
 
 /*
 	打开/创建manifest文件

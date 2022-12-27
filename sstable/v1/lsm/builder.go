@@ -28,6 +28,10 @@ type tableBuilder struct {
 	keyCount   uint32 // 整个builder 整个sst的key数量
 }
 
+func NewTableBuilder() *tableBuilder {
+
+}
+
 type Block struct {
 	estimateSz     int64    // 当前block预估数据大小
 	data           []byte   // 当前block所有相关数据 （kv_data、offsets、offsets_len、checksum、checksum_len)

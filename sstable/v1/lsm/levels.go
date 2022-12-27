@@ -2,6 +2,7 @@ package lsm
 
 import (
 	"errors"
+	"fmt"
 	v1 "github.com/hardcore-os/corekv/cache/v1"
 	"github.com/hardcore-os/corekv/sstable/v1/file"
 	"github.com/hardcore-os/corekv/sstable/v1/utils"
@@ -96,13 +97,42 @@ func (lm *LevelManager) build() error {
 
 	// 加载sst文件的索引到cache中
 
+	return nil
 }
 
 /*
 	levelManager的flush
 		将一个sst table 变为sst文件 flush到硬盘
 		将sst文件的层级关系放入levelhandler - manifest
+
+	参数：immutable MemTable类型
+			immutable与memtable实质是同一类型 都是内存中的kv数据（跳表 builder)
 */
-func (lm *LevelManager) flush() {
+func (lm *LevelManager) flush(immutable *memTable) error {
+	// 将immutable flush到硬盘
+	// 分配一个fid
+	var fid uint64
+	// 获取到文件名
+	sstFName := utils.GetFileNameSSTable(lm.opt.WorkDir, fid)
+	// 构建builder 需要将immutable的数据 放入builder中
+	builder := NewTableBuilder()
+
+	// 需要将immutable的数据 放入builder中
+	// 迭代immutable 使用迭代器
+	skipListIterator := immutable.sl.NewSkipListIterator()
+	for skipListIterator.Rewind(); skipListIterator.Valid(); skipListIterator.Next() {
+		builder.add(skipListIterator.Item())
+	}
+	// 刷盘到硬盘
+	table := openTable(*lm.opt, sstFName, builder)
+	// 写入sst文件数据 到 manifest
+	lm.manifestFile.AddTableMeta(0, &file.TableMeta{
+		ID:       fid,
+		CheckSum: []byte{'m', 'o', 'c', 'k'},
+	})
+	// 将sst写入levelhandler 这里为什么写入第一层？ 后续进行压缩处理吗
+	lm.levels[0].add(table)
+
+	return nil
 
 }
